@@ -1,0 +1,6 @@
+# Geheime Schlüssel und private Daten nie hochladen
+.streamlit/secrets.toml
+meine_daten/
+venv/
+__pycache__/
+.DS_Store
