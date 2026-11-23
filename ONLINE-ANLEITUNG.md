@@ -20,9 +20,7 @@ Deine lokale Version auf dem Mac funktioniert weiter wie bisher.
 
 1. Gehe auf https://github.com/signup und lege ein Konto an.
 2. Oben rechts auf **+** → **New repository** klicken.
-3. Name: `lern-app`. **Private** auswählen. Auf **Create repository** klicken.
-4. Den Code lade ich für dich hoch, sobald du mir dein OK gibst
-   (dafür verbindest du einmal GitHub mit Claude, ich schicke dir den Link).
+3. Erledigt: Dein Repository heißt `wolfgangjirschik/Lernapp`, der Code ist schon hochgeladen.
 
 **Wichtig:** Die Datei `.streamlit/secrets.toml` und der Ordner `meine_daten`
 kommen nie zu GitHub. Das ist in der Datei `.gitignore` so eingestellt.
@@ -58,7 +56,7 @@ kommen nie zu GitHub. Das ist in der Datei `.gitignore` so eingestellt.
 
 1. Gehe auf https://share.streamlit.io und melde dich **mit GitHub** an.
 2. **Create app** klicken und die Variante mit GitHub-Repository wählen.
-3. Repository: `dein-name/lern-app`, Branch: `main`, Main file path: `app.py`.
+3. Repository: `wolfgangjirschik/Lernapp`, Branch: `main`, Main file path: `app.py`.
 4. Bei **App URL** kannst du dir einen Namen aussuchen, z. B. `wolfgangs-lern-app`.
 5. **Advanced settings** öffnen:
    - Python version: **3.12** oder neuer
