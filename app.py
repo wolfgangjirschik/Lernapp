@@ -11,6 +11,8 @@ import copy
 import html
 import json
 import os
+import threading
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -146,8 +148,13 @@ def dateien_zu_bloecken(dateien, notizen_text: str) -> list:
     return bloecke
 
 
-def frage_claude(api_key, modell, bloecke, auftrag, format_klasse=None):
-    """Schickt Unterlagen + Auftrag an Claude und gibt die Antwort zurück."""
+def frage_claude(api_key, modell, bloecke, auftrag, format_klasse=None, anzeige=None):
+    """Schickt Unterlagen + Auftrag an Claude und gibt die Antwort zurück.
+
+    Die Anfrage läuft im Hintergrund. Währenddessen zeigt `anzeige` die Zeit an.
+    Klickt man auf „Abbrechen“, startet Streamlit die Seite neu: Dann wird die
+    Verbindung zu Claude geschlossen und das halbe Ergebnis verworfen.
+    """
     client = anthropic.Anthropic(api_key=api_key)
     extra = {}
     if modell in MODELLE_MIT_FALLBACK:
@@ -155,7 +162,7 @@ def frage_claude(api_key, modell, bloecke, auftrag, format_klasse=None):
     if format_klasse is not None:
         extra["output_format"] = format_klasse
 
-    antwort = client.beta.messages.parse(
+    anfrage = dict(
         model=modell,
         max_tokens=MAX_TOKENS,
         system=(
@@ -166,6 +173,40 @@ def frage_claude(api_key, modell, bloecke, auftrag, format_klasse=None):
         messages=[{"role": "user", "content": bloecke + [{"type": "text", "text": auftrag}]}],
         **extra,
     )
+    ablage = {}
+
+    def im_hintergrund():
+        try:
+            with client.beta.messages.stream(**anfrage) as stream:
+                ablage["stream"] = stream
+                for _ in stream:
+                    if ablage.get("stopp"):
+                        return
+                    ablage["zeichen"] = ablage.get("zeichen", 0) + 1
+                ablage["antwort"] = stream.get_final_message()
+        except Exception as fehler:  # wird unten im Hauptprogramm weitergegeben
+            ablage["fehler"] = fehler
+
+    faden = threading.Thread(target=im_hintergrund, daemon=True)
+    faden.start()
+    start = time.time()
+    try:
+        while faden.is_alive():
+            faden.join(0.3)
+            if anzeige is not None:
+                # Jede Anzeige-Änderung gibt Streamlit die Chance, auf „Abbrechen“ zu reagieren.
+                schritte = ablage.get("zeichen", 0)
+                text = "liest die Unterlagen" if schritte == 0 else "schreibt"
+                anzeige.caption(f"⏳ Claude {text} … {time.time() - start:.0f} Sekunden")
+    except BaseException:
+        ablage["stopp"] = True
+        stream = ablage.get("stream")
+        if stream is not None:
+            stream.close()  # Verbindung schließen: Claude hört auf, nichts wird gespeichert
+        raise
+    if "fehler" in ablage:
+        raise ablage["fehler"]
+    antwort = ablage["antwort"]
 
     if antwort.stop_reason == "refusal":
         raise RuntimeError("Claude hat diese Anfrage abgelehnt. Versuche es mit anderen Unterlagen.")
@@ -178,10 +219,18 @@ def frage_claude(api_key, modell, bloecke, auftrag, format_klasse=None):
 
 
 def mit_fehlermeldung(funktion, *args):
-    """Führt eine Anfrage aus und zeigt verständliche Fehlermeldungen."""
+    """Führt eine Anfrage aus (mit Abbrechen-Knopf) und zeigt verständliche Fehlermeldungen."""
+    bereich = st.empty()
     try:
-        with st.spinner("Claude arbeitet … das kann bei langen Unterlagen 1–2 Minuten dauern."):
-            return funktion(*args)
+        with bereich.container(border=True, key="arbeitet"):
+            st.markdown("**🐺 Claude arbeitet …** Bei langen Unterlagen kann das 1–2 Minuten dauern.")
+            anzeige = st.empty()
+            st.button("⏹️ Abbrechen", key="abbrechen", on_click=meldung,
+                      args=("Abgebrochen. Es wurde nichts erstellt oder gespeichert.", "⏹️"))
+        try:
+            return funktion(*args, anzeige=anzeige)
+        finally:
+            bereich.empty()
     except anthropic.AuthenticationError:
         st.error("Der API-Schlüssel ist ungültig. Bitte prüfe ihn in der Seitenleiste.")
     except anthropic.PermissionDeniedError:
@@ -345,9 +394,10 @@ def meldung_zeigen() -> None:
         st.toast(text, icon=symbol)
 
 
-def dokument_speichern(typ: str, inhalt) -> None:
-    """Speichert ein neues Ergebnis im gerade geöffneten Ordner (falls einer gewählt ist)."""
-    ordner_id = st.session_state.get("ordner_id")
+def dokument_speichern(typ: str, inhalt, ordner_id=None, ergebnis=None) -> None:
+    """Speichert ein Ergebnis im gewählten Ordner, sonst im gerade geöffneten Ordner (falls einer offen ist)."""
+    st.session_state[f"dok_{typ}"] = None  # neues Ergebnis: noch in keinem Ordner
+    ordner_id = ordner_id or st.session_state.get("ordner_id")
     if not ordner_id:
         return
     daten = daten_laden()
@@ -360,11 +410,52 @@ def dokument_speichern(typ: str, inhalt) -> None:
         "ordner_id": ordner_id,
         "erstellt": datetime.now().isoformat(timespec="seconds"),
         "inhalt": inhalt,
-        "ergebnis": None,
+        "ergebnis": ergebnis,
     }
     daten_speichern(daten)
     st.session_state[f"dok_{typ}"] = dok_id
     meldung(f"Gespeichert in „{daten['ordner'][ordner_id]['name']}“", "💾")
+
+
+NEUER_ORDNER = "__neu__"
+
+
+def in_ordner_speichern(typ: str) -> None:
+    """Zeigt unter einem Ergebnis, in welchem Ordner es liegt, oder einen Knopf zum Speichern."""
+    daten = daten_laden()
+    dok_id = st.session_state.get(f"dok_{typ}")
+    if dok_id in daten["dokumente"]:
+        ordner = daten["ordner"].get(daten["dokumente"][dok_id]["ordner_id"], {}).get("name", "?")
+        st.caption(f"💾 Gespeichert im Ordner „{ordner}“")
+        return
+    with st.popover("📁 In Ordner speichern"):
+        ordner_ids = sorted(daten["ordner"], key=lambda i: daten["ordner"][i]["name"].lower())
+        wahl = st.selectbox(
+            "Ordner", ordner_ids + [NEUER_ORDNER], key=f"ziel_ordner_{typ}",
+            format_func=lambda i: "➕ Neuer Ordner …" if i == NEUER_ORDNER else daten["ordner"][i]["name"],
+        )
+        neuer_name = ""
+        if wahl == NEUER_ORDNER:
+            neuer_name = st.text_input("Name des neuen Ordners", key=f"neuer_ordner_{typ}",
+                                       placeholder="z. B. Statistik 1")
+        if st.button("💾 Speichern", key=f"speichern_{typ}", type="primary"):
+            if wahl == NEUER_ORDNER and not neuer_name.strip():
+                st.warning("Bitte gib dem neuen Ordner einen Namen.")
+                return
+            if wahl == NEUER_ORDNER:
+                wahl = uuid.uuid4().hex[:10]
+                daten["ordner"][wahl] = {"name": neuer_name.strip()}
+                daten_speichern(daten)
+            if typ == "zusammenfassung":
+                inhalt = st.session_state["zusammenfassung"]
+            elif typ == "karten":
+                inhalt = {"karten": [k.model_dump() for k in st.session_state["karten"]]}
+            else:
+                inhalt = {"fragen": [f.model_dump() for f in st.session_state["quiz"]]}
+            alt = st.session_state.get("quiz_ergebnis") if typ == "quiz" else None
+            ergebnis = {str(k): list(v) for k, v in alt.items()} if alt else None
+            dokument_speichern(typ, inhalt, ordner_id=wahl, ergebnis=ergebnis)
+            st.rerun()
 
 
 def quiz_ergebnis_speichern(ergebnisse: dict) -> None:
@@ -763,9 +854,11 @@ with tab_zf:
         if text:
             st.session_state["zusammenfassung"] = text
             dokument_speichern("zusammenfassung", text)
+            st.rerun()
     if "zusammenfassung" not in st.session_state:
         leer_hinweis("Noch keine Zusammenfassung. Klick auf den Button oben.")
     else:
+        in_ordner_speichern("zusammenfassung")
         with st.container(border=True):
             st.markdown(st.session_state["zusammenfassung"])
         st.download_button(
@@ -789,10 +882,12 @@ with tab_karten:
             st.session_state["karte_nr"] = 0
             st.session_state["umgedreht"] = False
             dokument_speichern("karten", ergebnis.model_dump())
+            st.rerun()
 
     if not st.session_state.get("karten"):
         leer_hinweis("Noch keine Karteikarten. Wähle die Anzahl und klick auf den Button.")
     else:
+        in_ordner_speichern("karten")
         karten = st.session_state["karten"]
         nr = st.session_state["karte_nr"]
         karte = karten[nr]
@@ -876,6 +971,7 @@ with tab_quiz:
     if not st.session_state.get("quiz"):
         leer_hinweis("Noch kein Quiz. Wähle die Fragetypen und klick auf den Button.")
     else:
+        in_ordner_speichern("quiz")
         fragen = st.session_state["quiz"]
         runde = st.session_state["quiz_runde"]
         with st.form(f"quiz_formular_{runde}"):
