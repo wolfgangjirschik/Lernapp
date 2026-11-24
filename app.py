@@ -1,4 +1,4 @@
-"""Lern-App (Probeversion)
+"""Uniwolf – Lern-App (Probeversion)
 
 Lade Vorlesungsfolien (PDF) und eigene Notizen (PDF, TXT, MD) hoch.
 Claude erstellt daraus eine Zusammenfassung, Karteikarten und ein Quiz.
@@ -502,6 +502,7 @@ html, body, [class*="css"], .stMarkdown, button, input, textarea { font-family: 
 @keyframes leuchten   { 0%,100% { opacity: .55; } 50% { opacity: 1; } }
 @keyframes umdrehen   { from { transform: perspective(900px) rotateY(90deg); opacity: .2; }
                         to   { transform: perspective(900px) rotateY(0); opacity: 1; } }
+@keyframes wackeln    { 0%,100% { transform: rotate(0); } 50% { transform: rotate(-4deg); } }
 @keyframes verlauf    { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
 
 .block-container { padding-top: 3.5rem; max-width: 1100px; }
@@ -515,7 +516,7 @@ html, body, [class*="css"], .stMarkdown, button, input, textarea { font-family: 
 .hero h1 { color: white; font-size: 2.4rem; font-weight: 800; margin: 0; padding: 0; }
 .hero p  { color: rgba(255,255,255,.9); font-size: 1.05rem; margin: 6px 0 0 0; }
 .hero svg { flex-shrink: 0; animation: schweben 4s ease-in-out infinite; }
-.hero .funke { animation: leuchten 2.2s ease-in-out infinite; }
+.hero .hut { transform-origin: 70px 32px; animation: wackeln 3s ease-in-out infinite; }
 @media (max-width: 700px) { .hero { flex-direction: column; text-align: center; } }
 
 /* Schritt-Überschriften */
@@ -554,7 +555,14 @@ html, body, [class*="css"], .stMarkdown, button, input, textarea { font-family: 
 .karte .inhalt  { font-size: 1.45rem; font-weight: 600; line-height: 1.45; white-space: pre-wrap; }
 .karte.hinten .inhalt { font-size: 1.15rem; font-weight: 400; }
 
-/* Fragetyp-Kacheln */
+/* Fragetyp-Kacheln als Knöpfe */
+.st-key-typ_kacheln button { min-height: 130px; border-radius: 18px; padding: 16px; white-space: normal;
+    border: 2px solid #E4DACA; transition: all .2s ease; }
+.st-key-typ_kacheln button p { font-size: .9rem; line-height: 1.45; margin: 0; white-space: normal !important; overflow: visible !important; text-overflow: clip !important; }
+.st-key-typ_kacheln button div { white-space: normal !important; overflow: visible !important; text-overflow: clip !important; max-width: 100%; }
+.st-key-typ_kacheln button[kind="primary"] { box-shadow: 0 12px 26px rgba(31,77,58,.28); transform: translateY(-2px); }
+.st-key-typ_kacheln button[kind="secondary"] { background: white; opacity: .75; }
+/* (alt) Fragetyp-Info */
 [data-testid="stPills"] button, [data-testid="stButtonGroup"] button { border-radius: 999px; padding: 8px 18px; font-weight: 600; }
 .typ-info { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 6px 0 18px 0; }
 .typ-karte { background: white; border: 2px solid #E4DACA; border-radius: 16px; padding: 14px 16px; opacity: .55;
@@ -584,22 +592,36 @@ html, body, [class*="css"], .stMarkdown, button, input, textarea { font-family: 
 </style>
 """
 
-# Selbst gezeichnete Grafik: Bücherstapel mit Glühbirne
+# Selbst gezeichnetes Logo: Wolfskopf mit Studentenhut (Uniwolf)
 HERO_GRAFIK = """
-<svg width="150" height="130" viewBox="0 0 150 130" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-  <ellipse cx="75" cy="122" rx="58" ry="6" fill="rgba(0,0,0,.12)"/>
-  <rect x="22" y="92" width="106" height="24" rx="5" fill="#FFD166"/>
-  <rect x="22" y="92" width="10" height="24" rx="3" fill="#F4A940"/>
-  <rect x="30" y="66" width="92" height="24" rx="5" fill="#FFFFFF"/>
-  <rect x="30" y="66" width="10" height="24" rx="3" fill="#E2D6C3"/>
-  <rect x="38" y="76" width="70" height="3" rx="1.5" fill="#E2D6C3"/>
-  <rect x="18" y="40" width="100" height="24" rx="5" fill="#5E8C61"/>
-  <rect x="18" y="40" width="10" height="24" rx="3" fill="#3F6B47"/>
-  <g transform="translate(112 8)">
-    <circle class="funke" cx="14" cy="16" r="22" fill="rgba(255,236,153,.35)"/>
-    <path d="M14 2a12 12 0 0 0-7 21.7V28h14v-4.3A12 12 0 0 0 14 2z" fill="#FFE27A"/>
-    <rect x="7" y="29" width="14" height="4" rx="2" fill="#FFFFFF"/>
-    <rect x="9" y="34" width="10" height="3" rx="1.5" fill="#FFFFFF"/>
+<svg width="150" height="150" viewBox="0 0 140 140" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <ellipse cx="70" cy="134" rx="44" ry="5" fill="rgba(0,0,0,.15)"/>
+  <!-- Ohren -->
+  <polygon points="26,14 54,56 18,70" fill="#5A6570"/>
+  <polygon points="114,14 86,56 122,70" fill="#5A6570"/>
+  <polygon points="29,26 47,55 25,63" fill="#8B5E3C"/>
+  <polygon points="111,26 93,55 115,63" fill="#8B5E3C"/>
+  <!-- Kopf -->
+  <polygon points="18,66 50,48 70,52 90,48 122,66 112,94 88,114 70,128 52,114 28,94" fill="#7D8893"/>
+  <polygon points="18,66 50,48 70,52 52,80 28,94" fill="#6B7681"/>
+  <polygon points="122,66 90,48 70,52 88,80 112,94" fill="#8C97A1"/>
+  <!-- helles Gesicht -->
+  <polygon points="50,74 70,64 90,74 86,100 70,120 54,100" fill="#E9E3D8"/>
+  <polygon points="28,94 50,86 54,100 52,114" fill="#E9E3D8"/>
+  <polygon points="112,94 90,86 86,100 88,114" fill="#E9E3D8"/>
+  <!-- Augen -->
+  <polygon points="44,74 60,72 54,80" fill="#F2C14E"/>
+  <polygon points="96,74 80,72 86,80" fill="#F2C14E"/>
+  <circle cx="54" cy="76" r="2.2" fill="#1F2A24"/>
+  <circle cx="86" cy="76" r="2.2" fill="#1F2A24"/>
+  <!-- Nase -->
+  <path d="M62 104 h16 l-8 9 z" fill="#1F2A24"/>
+  <!-- Studentenhut -->
+  <g class="hut">
+    <polygon points="70,20 104,32 70,44 36,32" fill="#1F4D3A"/>
+    <path d="M52 38 v9 q18 9 36 0 v-9 l-18 6 z" fill="#163829"/>
+    <line x1="104" y1="32" x2="104" y2="48" stroke="#E0B44C" stroke-width="2.5"/>
+    <circle cx="104" cy="50" r="3.5" fill="#E0B44C"/>
   </g>
 </svg>
 """
@@ -617,7 +639,7 @@ LEER_GRAFIK = """
 def kopfbereich():
     st.markdown(STIL, unsafe_allow_html=True)
     st.markdown(
-        f"""<div class="hero"><div><h1>Lern-App</h1>
+        f"""<div class="hero"><div><h1>Uniwolf</h1>
         <p>Lade deine Vorlesung hoch und lerne mit Zusammenfassung, Karteikarten und Quiz.</p></div>
         {HERO_GRAFIK}</div>""",
         unsafe_allow_html=True,
@@ -647,7 +669,7 @@ def karte_anzeigen(text, hinten):
 # Oberfläche
 # ---------------------------------------------------------------------------
 
-st.set_page_config(page_title="Lern-App", page_icon="📚", layout="wide")
+st.set_page_config(page_title="Uniwolf", page_icon="🐺", layout="wide")
 kopfbereich()
 if ONLINE:
     anmeldung()
@@ -764,24 +786,23 @@ with tab_karten:
 
 # Quiz
 with tab_quiz:
-    st.markdown("**Welche Fragetypen möchtest du?** Klick an, was du willst (mehrere möglich).")
-    gewaehlte_typen = st.pills(
-        "Fragetypen",
-        options=list(FRAGETYPEN.keys()),
-        selection_mode="multi",
-        default=list(FRAGETYPEN.keys()),
-        format_func=lambda t: TYP_KACHEL[t],
-        label_visibility="collapsed",
-        key="fragetypen",
-    ) or []
-    st.markdown(
-        '<div class="typ-info">' + "".join(
-            f'<div class="typ-karte{" aktiv" if t in gewaehlte_typen else ""}">'
-            f'<div class="typ-symbol">{TYP_SYMBOL[t]}</div><div class="typ-titel">{TYP_TITEL[t]}</div>'
-            f'<div class="typ-text">{TYP_TEXT[t]}</div></div>'
-            for t in FRAGETYPEN) + "</div>",
-        unsafe_allow_html=True,
-    )
+    st.markdown("**Welche Fragetypen möchtest du?** Klick auf die Felder (mehrere möglich).")
+    if "fragetypen" not in st.session_state:
+        st.session_state["fragetypen"] = list(FRAGETYPEN.keys())
+    with st.container(key="typ_kacheln"):
+        for spalte, t in zip(st.columns(3), FRAGETYPEN):
+            aktiv = t in st.session_state["fragetypen"]
+            haken = "✅ " if aktiv else ""
+            if spalte.button(
+                f"{TYP_SYMBOL[t]}  \n**{haken}{TYP_TITEL[t]}**  \n{TYP_TEXT[t]}",
+                key=f"typ_{t}", type="primary" if aktiv else "secondary", use_container_width=True,
+            ):
+                if aktiv:
+                    st.session_state["fragetypen"].remove(t)
+                else:
+                    st.session_state["fragetypen"].append(t)
+                st.rerun()
+    gewaehlte_typen = [t for t in FRAGETYPEN if t in st.session_state["fragetypen"]]
     anzahl_fragen = st.slider("Anzahl Fragen", 3, 20, 6)
     if not gewaehlte_typen:
         st.info("Bitte wähle mindestens einen Fragetyp.")
