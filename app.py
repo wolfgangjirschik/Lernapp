@@ -37,6 +37,20 @@ MODELLE = {
 # Anfrage aus Sicherheitsgründen ablehnt ("server-side fallback").
 MODELLE_MIT_FALLBACK = {"claude-opus-5-5", "claude-sonnet-5-5"}
 
+# Preise in US-Dollar pro 1 Million Tokens: (Eingabe, Ausgabe, Cache lesen).
+# Quelle: https://platform.claude.com/docs/en/about-claude/pricing (Stand Nov. 2026).
+# Cache schreiben kostet das 1,25-Fache der Eingabe (5 Minuten Cache).
+# Die älteren Modelle stehen hier, weil Claude bei einer Ablehnung automatisch auf sie ausweichen kann.
+PREISE_USD = {
+    "claude-opus-5-5": (4.00, 20.00, 0.20),
+    "claude-sonnet-5-5": (2.00, 10.00, 0.10),
+    "claude-haiku-5-5": (0.10, 0.50, 0.01),
+    "claude-opus-5": (5.00, 25.00, 0.50),
+    "claude-opus-4-8": (5.00, 25.00, 0.50),
+    "claude-sonnet-5": (2.00, 10.00, 0.20),
+}
+HAIKU_LANG_USD = (0.50, 2.50, 0.05)  # Haiku 5.5 bei Anfragen über 100.000 Tokens
+
 MAX_TOKENS = 16000
 
 
@@ -112,15 +126,6 @@ def api_schluessel_vorbelegt() -> str:
     return os.environ.get("ANTHROPIC_API_KEY", "")
 
 
-def unterstuetzen_link() -> str:
-    """Optionaler Spenden-Link (z. B. revolut.me) aus den Secrets: REVOLUT_LINK."""
-    try:
-        link = str(st.secrets.get("REVOLUT_LINK", "")).strip()
-    except Exception:
-        return ""  # keine secrets.toml vorhanden
-    return link if link.startswith("https://") else ""
-
-
 def dateien_zu_bloecken(dateien, notizen_text: str) -> list:
     """Wandelt hochgeladene Dateien in Inhalte um, die Claude lesen kann."""
     bloecke = []
@@ -164,6 +169,11 @@ def frage_claude(api_key, modell, bloecke, auftrag, format_klasse=None, anzeige=
     Klickt man auf „Abbrechen“, startet Streamlit die Seite neu: Dann wird die
     Verbindung zu Claude geschlossen und das halbe Ergebnis verworfen.
     """
+    zahlt_mit_guthaben = guthaben_pflicht(api_key)
+    if zahlt_mit_guthaben:
+        stand = guthaben_stand()
+        if stand is not None and stand <= 0:
+            raise RuntimeError("Dein Guthaben ist aufgebraucht. Lade es links unter „Guthaben aufladen“ auf.")
     client = anthropic.Anthropic(api_key=api_key)
     extra = {}
     if modell in MODELLE_MIT_FALLBACK:
@@ -216,6 +226,8 @@ def frage_claude(api_key, modell, bloecke, auftrag, format_klasse=None, anzeige=
     if "fehler" in ablage:
         raise ablage["fehler"]
     antwort = ablage["antwort"]
+    if zahlt_mit_guthaben:
+        guthaben_abbuchen(kosten_cent(modell, antwort), auftrag[:60])
 
     if antwort.stop_reason == "refusal":
         raise RuntimeError("Claude hat diese Anfrage abgelehnt. Versuche es mit anderen Unterlagen.")
@@ -352,6 +364,135 @@ def abmelden() -> None:
     for k in list(st.session_state.keys()):
         del st.session_state[k]
     st.rerun()
+
+
+# ---------------------------------------------------------------------------
+# Guthaben (nur online, wenn alle mit deinem Claude-Schlüssel arbeiten).
+# Der Kontostand liegt in Supabase. Nutzer können ihn nur lesen, nicht ändern:
+# Abbuchen und Aufladen laufen über Funktionen in der Datenbank
+# (siehe supabase_guthaben.sql). Nur Admins (Tabelle guthaben_admins) können aufladen.
+# ---------------------------------------------------------------------------
+
+def geheimnis(name: str, standard=None):
+    try:
+        return st.secrets.get(name, standard)
+    except Exception:
+        return standard  # keine secrets.toml vorhanden
+
+
+def euro(cent: float) -> str:
+    return f"{cent / 100:.2f} €".replace(".", ",")
+
+
+def guthaben_pflicht(api_key: str) -> bool:
+    """Guthaben zählt nur online und nur, wenn dein Schlüssel aus den Secrets benutzt wird."""
+    return (ONLINE and bool(api_key) and api_key == api_schluessel_vorbelegt()
+            and not st.session_state.get("guthaben_fehlt"))
+
+
+def guthaben_stand():
+    """Kontostand in Cent. Beim allerersten Mal schreibt die Datenbank das Startguthaben gut."""
+    try:
+        stand = float(supabase_client().rpc("guthaben_stand").execute().data)
+    except Exception as fehler:
+        if "guthaben_stand" in str(fehler) and ("PGRST202" in str(fehler) or "Could not find" in str(fehler)):
+            st.session_state["guthaben_fehlt"] = True  # SQL noch nicht ausgeführt: Guthaben aus
+            return None
+        raise RuntimeError("Dein Guthaben konnte gerade nicht geladen werden. Bitte versuche es gleich nochmal.")
+    st.session_state["guthaben_cent"] = stand
+    return stand
+
+
+def kosten_cent(modell: str, antwort) -> float:
+    """Echte Kosten einer Anfrage aus den verbrauchten Tokens, in Euro-Cent."""
+    u = antwort.usage
+    neu = u.input_tokens or 0
+    schreiben = getattr(u, "cache_creation_input_tokens", 0) or 0
+    lesen = getattr(u, "cache_read_input_tokens", 0) or 0
+    aus = u.output_tokens or 0
+    benutzt = getattr(antwort, "model", None) or modell  # bei Ausweich-Modell dessen Preis
+    preis = PREISE_USD.get(benutzt, PREISE_USD.get(modell, PREISE_USD["claude-opus-5-5"]))
+    if benutzt == "claude-haiku-5-5" and neu + schreiben + lesen > 100_000:
+        preis = HAIKU_LANG_USD
+    ein_p, aus_p, lese_p = preis
+    usd = (neu * ein_p + schreiben * ein_p * 1.25 + lesen * lese_p + aus * aus_p) / 1_000_000
+    kurs = float(geheimnis("EURO_PRO_DOLLAR", 0.90))
+    aufschlag = 1 + float(geheimnis("AUFSCHLAG_PROZENT", 0)) / 100
+    return round(usd * kurs * aufschlag * 100, 4)
+
+
+def guthaben_abbuchen(cent: float, grund: str) -> None:
+    try:
+        stand = supabase_client().rpc(
+            "guthaben_abbuchen", {"kosten_cent": cent, "grund": grund}).execute().data
+        st.session_state["guthaben_cent"] = float(stand)
+        meldung(f"Kosten: {euro(cent)} · Guthaben: {euro(float(stand))}", "💰")
+    except Exception:
+        pass  # Ergebnis trotzdem zeigen; der Fehler liegt dann bei der Datenbank
+
+
+def guthaben_seitenleiste() -> None:
+    """Kontostand, Aufladen und (für Admins) Verwaltung."""
+    stand = st.session_state.get("guthaben_cent")
+    if stand is None or time.time() - st.session_state.get("guthaben_zeit", 0) > 60:
+        st.session_state["guthaben_zeit"] = time.time()  # höchstens einmal pro Minute neu laden
+        try:
+            stand = guthaben_stand()
+        except RuntimeError as fehler:
+            st.warning(str(fehler))
+            return
+    if stand is None:  # Guthaben-System noch nicht eingerichtet
+        if ist_admin_anzeige():
+            st.info("Guthaben ist aus: Bitte supabase_guthaben.sql im Supabase SQL Editor ausführen.")
+        return
+    st.metric("💰 Dein Guthaben", euro(stand))
+    if stand <= 0:
+        st.error("Dein Guthaben ist aufgebraucht. Lade es auf, um weiterzulernen.")
+    with st.popover("➕ Guthaben aufladen", use_container_width=True):
+        email = st.session_state.get("user_email", "")
+        st.markdown(
+            "1. Klick unten und schick den Betrag, den du aufladen willst.\n"
+            f"2. Schreib als **Nachricht/Verwendungszweck** deine E-Mail: `{email}`\n"
+            "3. Sobald die Zahlung da ist, wird sie dir gutgeschrieben (nicht automatisch, meist am selben Tag)."
+        )
+        link = geheimnis("REVOLUT_LINK", "")
+        if str(link).startswith("https://"):
+            st.link_button("💳 Bezahlen (Revolut, Karte, Apple Pay)", link, use_container_width=True)
+        else:
+            st.caption("Frag die Person, die dir den Link geschickt hat, wie du zahlen kannst.")
+    if ist_admin_anzeige():
+        guthaben_verwaltung()
+
+
+def ist_admin_anzeige() -> bool:
+    """Zeigt nur die Verwaltung an. Ob jemand wirklich aufladen darf, prüft die Datenbank selbst."""
+    admin = str(geheimnis("ADMIN_EMAIL", "")).strip().lower()
+    return bool(admin) and st.session_state.get("user_email", "").lower() == admin
+
+
+def guthaben_verwaltung() -> None:
+    with st.popover("🛠️ Guthaben verwalten", use_container_width=True):
+        try:
+            liste = supabase_client().rpc("guthaben_liste").execute().data or []
+        except Exception:
+            st.error("Kein Zugriff. Steht deine E-Mail in der Tabelle guthaben_admins?")
+            return
+        if liste:
+            st.dataframe(
+                [{"E-Mail": z["email"], "Guthaben": euro(float(z["cent"]))} for z in liste],
+                hide_index=True, use_container_width=True,
+            )
+        with st.form("aufladen", clear_on_submit=True, border=False):
+            ziel = st.selectbox("Person", [z["email"] for z in liste]) if liste else None
+            betrag = st.number_input("Betrag in Euro (minus zum Abziehen)", value=5.0, step=1.0, format="%.2f")
+            if st.form_submit_button("💰 Gutschreiben", type="primary") and ziel and betrag:
+                try:
+                    neu = supabase_client().rpc(
+                        "guthaben_aufladen", {"ziel_email": ziel, "betrag_cent": round(betrag * 100, 2)}).execute().data
+                    meldung(f"{ziel}: neues Guthaben {euro(float(neu))}", "✅")
+                    st.rerun()
+                except Exception as fehler:
+                    st.error(f"Hat nicht geklappt: {fehler}")
 
 
 # ---------------------------------------------------------------------------
@@ -829,12 +970,11 @@ with st.sidebar:
     modell_name = st.selectbox("Modell", list(MODELLE.keys()))
     modell = MODELLE[modell_name]
 
+    if guthaben_pflicht(api_key):
+        guthaben_seitenleiste()
+
     ordner_seitenleiste()
 
-    if unterstuetzen_link():
-        st.divider()
-        st.caption("Dir gefällt Uniwolf? Hilf mit, die Kosten für Claude zu tragen.")
-        st.link_button("☕ Unterstützen", unterstuetzen_link(), use_container_width=True)
 
 # --- Schritt 1: Unterlagen ---
 schritt(1, "Unterlagen hochladen")

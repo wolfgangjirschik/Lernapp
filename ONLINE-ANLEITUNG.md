@@ -78,15 +78,34 @@ kommen nie zu GitHub. Das ist in der Datei `.gitignore` so eingestellt.
      ERLAUBTE_EMAILS = ["du@beispiel.at", "freund@beispiel.at"]
      ```
      Neue Freunde fügst du später unter **App settings → Secrets** hinzu.
-   - Optional: Ein Knopf **☕ Unterstützen** in der Seitenleiste, über den Freunde dir
-     etwas schicken können (dein Revolut-Zahlungslink):
-     ```
-     REVOLUT_LINK = "https://revolut.me/dein-name"
-     ```
-     Ohne diese Zeile erscheint kein Knopf.
    - **Save** klicken.
 6. **Deploy** klicken. Nach 2–3 Minuten ist die App online.
 7. Den Link schickst du deinen Freunden.
+
+---
+
+## Guthaben (Freunde zahlen selbst)
+
+Jedes neue Konto bekommt einmalig **5 € Startguthaben**. Jede Anfrage an Claude zieht die
+echten Kosten ab. Bei 0 € kann man nichts mehr erstellen, bis aufgeladen wird.
+
+1. **Supabase → SQL Editor:** Inhalt von `supabase_guthaben.sql` hineinkopieren. In der
+   **letzten Zeile** `deine-email@beispiel.at` durch deine E-Mail ersetzen → **Run**.
+2. **Streamlit → App settings → Secrets** ergänzen:
+   ```
+   ADMIN_EMAIL = "deine E-Mail"
+   REVOLUT_LINK = "https://revolut.me/deinname"
+   ```
+   Optional: `EURO_PRO_DOLLAR = 0.90` (Wechselkurs, Claude rechnet in Dollar) und
+   `AUFSCHLAG_PROZENT = 0` (Aufschlag auf die echten Kosten).
+3. **Aufladen:** Freunde zahlen über den Knopf in der App und schreiben ihre E-Mail in die
+   Nachricht. Du siehst die Zahlung in Revolut und schreibst sie in der App unter
+   **🛠️ Guthaben verwalten** gut (nur für dich sichtbar).
+
+Sicherheit: Nutzer können ihr Guthaben nur lesen. Abziehen und Aufladen erledigt die Datenbank
+selbst, Aufladen nur für E-Mails in der Tabelle `guthaben_admins`.
+Wichtig: Jede neue E-Mail bekommt 5 €. Behalte daher `ERLAUBTE_EMAILS` oder schalte in Supabase
+**Confirm email** wieder ein.
 
 ---
 
@@ -126,5 +145,7 @@ kommen nie zu GitHub. Das ist in der Datei `.gitignore` so eingestellt.
 - Supabase Login mit E-Mail/Passwort, E-Mail-Bestätigung standardmäßig an: https://supabase.com/docs/guides/auth/passwords
 - Streamlit Community Cloud ist kostenlos und nutzt GitHub (auch private Repositories): https://docs.streamlit.io/deploy/streamlit-community-cloud
 - Ausgabenlimits in der Claude Console: https://platform.claude.com/docs/en/api/rate-limits#setting-your-own-spend-limit
+- Claude-Preise pro Modell: https://platform.claude.com/docs/en/about-claude/pricing
+- Supabase Datenbank-Funktionen (security definer): https://supabase.com/docs/guides/database/functions
 - Revolut Zahlungslink erstellen (Zahlungen > Neu > Link > Geld anfordern): https://help.revolut.com/help/adding-money/with-money-from-friends-or-relatives/requesting-money/
 - Secrets in Streamlit Community Cloud eintragen: https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/secrets-management
