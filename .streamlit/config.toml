@@ -1,8 +1,8 @@
 # Farben und Schrift der App (Streamlit-Theme)
 [theme]
 base = "light"
-primaryColor = "#6C5CE7"
-backgroundColor = "#F7F7FB"
-secondaryBackgroundColor = "#EEEDFB"
-textColor = "#1E1B3A"
+primaryColor = "#1F4D3A"
+backgroundColor = "#FAF7F2"
+secondaryBackgroundColor = "#EFE8DC"
+textColor = "#1F2A24"
 font = "sans serif"

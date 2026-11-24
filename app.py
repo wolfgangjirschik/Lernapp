@@ -383,77 +383,97 @@ def dokument_oeffnen(dok_id: str, dok: dict) -> None:
 
 
 def ordner_seitenleiste() -> None:
-    """Ordner und Dokumente in der Seitenleiste."""
+    """Ordner und Dokumente in der Seitenleiste: Ordner als Kacheln, Dokumente als Karten."""
     daten = daten_laden()
     st.divider()
-    st.subheader("📁 Meine Ordner")
+    st.markdown('<div class="seiten-titel">📁 Meine Ordner</div>', unsafe_allow_html=True)
 
-    with st.form("neuer_ordner", clear_on_submit=True, border=False):
-        name = st.text_input("Neuer Ordner", placeholder="z. B. Statistik 1")
-        if st.form_submit_button("➕ Ordner anlegen") and name.strip():
-            neu_id = uuid.uuid4().hex[:10]
-            daten["ordner"][neu_id] = {"name": name.strip()}
-            daten_speichern(daten)
-            st.session_state["ordner_id"] = neu_id
-            st.rerun()
-
-    if not daten["ordner"]:
-        st.caption("Noch keine Ordner. Lege einen an, dann werden deine Ergebnisse dort gespeichert.")
-        st.session_state["ordner_id"] = None
-        return
-
-    ordner_ids = [None] + sorted(daten["ordner"], key=lambda i: daten["ordner"][i]["name"].lower())
+    ordner_ids = sorted(daten["ordner"], key=lambda i: daten["ordner"][i]["name"].lower())
     if st.session_state.get("ordner_id") not in ordner_ids:
         st.session_state["ordner_id"] = None
+    ordner_id = st.session_state["ordner_id"]
 
-    def ordner_label(i):
-        if i is None:
-            return "— kein Ordner (nicht speichern) —"
-        anzahl = sum(1 for d in daten["dokumente"].values() if d["ordner_id"] == i)
-        return f"📁 {daten['ordner'][i]['name']} ({anzahl})"
+    def anzahl(i):
+        return sum(1 for d in daten["dokumente"].values() if d["ordner_id"] == i)
 
-    ordner_id = st.selectbox("Geöffneter Ordner", ordner_ids, format_func=ordner_label, key="ordner_id")
+    # Ordner-Kacheln: Klick öffnet den Ordner, nochmal Klick schließt ihn
+    for i in ordner_ids:
+        aktiv = i == ordner_id
+        symbol = "📂" if aktiv else "📁"
+        if st.button(f"{symbol}  {daten['ordner'][i]['name']}  ·  {anzahl(i)}", key=f"ordner_btn_{i}",
+                     type="primary" if aktiv else "secondary", use_container_width=True):
+            st.session_state["ordner_id"] = None if aktiv else i
+            st.rerun()
+
+    with st.popover("➕ Neuer Ordner", use_container_width=True):
+        with st.form("neuer_ordner", clear_on_submit=True, border=False):
+            name = st.text_input("Name des Ordners", placeholder="z. B. Statistik 1")
+            if st.form_submit_button("Anlegen", type="primary") and name.strip():
+                neu_id = uuid.uuid4().hex[:10]
+                daten["ordner"][neu_id] = {"name": name.strip()}
+                daten_speichern(daten)
+                st.session_state["ordner_id"] = neu_id
+                st.rerun()
+
+    if not ordner_ids:
+        st.caption("Noch keine Ordner. Lege einen an, dann werden deine Ergebnisse dort gespeichert.")
+        return
     if ordner_id is None:
-        st.caption("Wähle einen Ordner, damit neue Ergebnisse automatisch gespeichert werden.")
+        st.caption("Klick auf einen Ordner, um ihn zu öffnen. Neue Ergebnisse werden dann dort gespeichert.")
         return
 
-    st.caption("Neue Zusammenfassungen, Karteikarten und Quizze werden hier automatisch gespeichert.")
+    # Geöffneter Ordner
+    st.markdown(
+        f'<div class="ordner-kopf">📂 {html.escape(daten["ordner"][ordner_id]["name"])}'
+        f'<span>Neues wird hier automatisch gespeichert</span></div>',
+        unsafe_allow_html=True,
+    )
 
     dokumente = sorted(
         ((i, d) for i, d in daten["dokumente"].items() if d["ordner_id"] == ordner_id),
         key=lambda x: x[1]["erstellt"], reverse=True,
     )
     if not dokumente:
-        st.info("Dieser Ordner ist noch leer.")
+        st.caption("Dieser Ordner ist noch leer.")
+
     for dok_id, dok in dokumente:
-        titel = f"{DOK_SYMBOL[dok['typ']]} {dok['name']}"
+        datum = datetime.fromisoformat(dok["erstellt"]).strftime("%d.%m.%Y")
+        info = f"{DOK_NAME[dok['typ']]} · {datum}"
         if dok["typ"] == "quiz" and dok.get("ergebnis"):
             punkte = sum(PUNKTE.get(v[0], 0) for v in dok["ergebnis"].values())
-            titel += f" · {punkte:g}/{len(dok['inhalt']['fragen'])}".replace(".", ",")
-        with st.expander(titel):
-            if st.button("📂 Öffnen", key=f"oeffnen_{dok_id}", type="primary", use_container_width=True):
+            info += f" · ⭐ {punkte:g}/{len(dok['inhalt']['fragen'])}".replace(".", ",")
+        with st.container(border=True):
+            st.markdown(
+                f'<div class="dok-karte"><div class="dok-symbol">{DOK_SYMBOL[dok["typ"]]}</div>'
+                f'<div><div class="dok-name">{html.escape(dok["name"])}</div>'
+                f'<div class="dok-info">{info}</div></div></div>',
+                unsafe_allow_html=True,
+            )
+            links, rechts = st.columns([3, 1])
+            if links.button("Öffnen", key=f"oeffnen_{dok_id}", type="primary", use_container_width=True):
                 dokument_oeffnen(dok_id, dok)
-            neuer_name = st.text_input("Name", value=dok["name"], key=f"name_{dok_id}")
-            if st.button("✏️ Umbenennen", key=f"umbenennen_{dok_id}", use_container_width=True):
-                if neuer_name.strip():
-                    daten["dokumente"][dok_id]["name"] = neuer_name.strip()
+            with rechts.popover("✏️", use_container_width=True):
+                neuer_name = st.text_input("Name", value=dok["name"], key=f"name_{dok_id}")
+                if st.button("✏️ Umbenennen", key=f"umbenennen_{dok_id}", use_container_width=True):
+                    if neuer_name.strip():
+                        daten["dokumente"][dok_id]["name"] = neuer_name.strip()
+                        daten_speichern(daten)
+                        st.rerun()
+                andere = [i for i in ordner_ids if i != ordner_id]
+                if andere:
+                    ziel = st.selectbox("Verschieben nach", andere,
+                                        format_func=lambda i: daten["ordner"][i]["name"], key=f"ziel_{dok_id}")
+                    if st.button("📦 Verschieben", key=f"verschieben_{dok_id}", use_container_width=True):
+                        daten["dokumente"][dok_id]["ordner_id"] = ziel
+                        daten_speichern(daten)
+                        st.rerun()
+                sicher = st.checkbox("Ja, wirklich löschen", key=f"sicher_{dok_id}")
+                if st.button("🗑️ Löschen", key=f"loeschen_{dok_id}", disabled=not sicher, use_container_width=True):
+                    del daten["dokumente"][dok_id]
                     daten_speichern(daten)
                     st.rerun()
-            andere = [i for i in ordner_ids if i not in (None, ordner_id)]
-            if andere:
-                ziel = st.selectbox("Verschieben nach", andere,
-                                    format_func=lambda i: daten["ordner"][i]["name"], key=f"ziel_{dok_id}")
-                if st.button("📦 Verschieben", key=f"verschieben_{dok_id}", use_container_width=True):
-                    daten["dokumente"][dok_id]["ordner_id"] = ziel
-                    daten_speichern(daten)
-                    st.rerun()
-            sicher = st.checkbox("Ja, wirklich löschen", key=f"sicher_{dok_id}")
-            if st.button("🗑️ Löschen", key=f"loeschen_{dok_id}", disabled=not sicher, use_container_width=True):
-                del daten["dokumente"][dok_id]
-                daten_speichern(daten)
-                st.rerun()
 
-    with st.expander("⚙️ Ordner bearbeiten"):
+    with st.popover("⚙️ Ordner bearbeiten", use_container_width=True):
         ordner_name = st.text_input("Ordnername", value=daten["ordner"][ordner_id]["name"], key=f"oname_{ordner_id}")
         if st.button("✏️ Ordner umbenennen", use_container_width=True) and ordner_name.strip():
             daten["ordner"][ordner_id]["name"] = ordner_name.strip()
@@ -464,7 +484,7 @@ def ordner_seitenleiste() -> None:
             daten["dokumente"] = {i: d for i, d in daten["dokumente"].items() if d["ordner_id"] != ordner_id}
             del daten["ordner"][ordner_id]
             daten_speichern(daten)
-            st.session_state.pop("ordner_id", None)
+            st.session_state["ordner_id"] = None
             st.rerun()
 
 
@@ -489,9 +509,9 @@ html, body, [class*="css"], .stMarkdown, button, input, textarea { font-family: 
 /* Kopfbereich */
 .hero { display: flex; align-items: center; justify-content: space-between; gap: 24px;
         padding: 28px 36px; border-radius: 24px; color: white; margin-bottom: 28px;
-        background: linear-gradient(120deg, #6C5CE7, #8E7CF8, #00B8D9, #6C5CE7);
+        background: linear-gradient(120deg, #1F4D3A, #2F6B4F, #8B5E3C, #1F4D3A);
         background-size: 300% 300%; animation: verlauf 14s ease infinite, einblenden .7s ease both;
-        box-shadow: 0 18px 40px rgba(108, 92, 231, .25); }
+        box-shadow: 0 18px 40px rgba(31,77,58, .25); }
 .hero h1 { color: white; font-size: 2.4rem; font-weight: 800; margin: 0; padding: 0; }
 .hero p  { color: rgba(255,255,255,.9); font-size: 1.05rem; margin: 6px 0 0 0; }
 .hero svg { flex-shrink: 0; animation: schweben 4s ease-in-out infinite; }
@@ -501,17 +521,17 @@ html, body, [class*="css"], .stMarkdown, button, input, textarea { font-family: 
 /* Schritt-Überschriften */
 .schritt { display: flex; align-items: center; gap: 12px; margin: 26px 0 10px 0; animation: einblenden .6s ease both; }
 .schritt .nr { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
-               background: #6C5CE7; color: white; font-weight: 800; box-shadow: 0 6px 14px rgba(108,92,231,.35); }
-.schritt .titel { font-size: 1.35rem; font-weight: 800; color: #1E1B3A; }
+               background: #1F4D3A; color: white; font-weight: 800; box-shadow: 0 6px 14px rgba(31,77,58,.35); }
+.schritt .titel { font-size: 1.35rem; font-weight: 800; color: #1F2A24; }
 
 /* Buttons */
 .stButton > button, .stDownloadButton > button, [data-testid="stFormSubmitButton"] > button {
     border-radius: 12px; font-weight: 600; transition: transform .15s ease, box-shadow .15s ease; }
 .stButton > button:hover, .stDownloadButton > button:hover, [data-testid="stFormSubmitButton"] > button:hover {
-    transform: translateY(-2px); box-shadow: 0 8px 18px rgba(108,92,231,.25); }
+    transform: translateY(-2px); box-shadow: 0 8px 18px rgba(31,77,58,.25); }
 
 /* Upload-Feld und Tabs */
-[data-testid="stFileUploaderDropzone"] { border-radius: 16px; border: 2px dashed #B9B1F5; background: white; }
+[data-testid="stFileUploaderDropzone"] { border-radius: 16px; border: 2px dashed #B89B74; background: white; }
 .stTabs [data-baseweb="tab-list"] { gap: 6px; }
 .stTabs [data-baseweb="tab"] { border-radius: 12px 12px 0 0; padding: 10px 18px; font-weight: 600; }
 [data-testid="stTabContent"], .stTabs [role="tabpanel"] { animation: einblenden .45s ease both; }
@@ -519,17 +539,17 @@ html, body, [class*="css"], .stMarkdown, button, input, textarea { font-family: 
 /* Hinweise und Ergebnis-Boxen */
 [data-testid="stAlert"] { border-radius: 14px; animation: einblenden .45s ease both; }
 [data-testid="stMetric"] { background: white; border-radius: 16px; padding: 16px 20px;
-                           box-shadow: 0 6px 20px rgba(30,27,58,.06); animation: einblenden .5s ease both; }
+                           box-shadow: 0 6px 20px rgba(31,42,36,.06); animation: einblenden .5s ease both; }
 
 /* Seitenleiste */
-[data-testid="stSidebar"] { background: linear-gradient(180deg, #EEEDFB 0%, #F7F7FB 100%); }
+[data-testid="stSidebar"] { background: linear-gradient(180deg, #EFE8DC 0%, #FAF7F2 100%); }
 
 /* Karteikarte */
 .karte { min-height: 230px; border-radius: 22px; padding: 34px 38px; margin: 8px 0 18px 0;
          display: flex; flex-direction: column; justify-content: center; animation: umdrehen .45s ease both;
-         box-shadow: 0 16px 36px rgba(30,27,58,.10); }
-.karte.vorne  { background: white; border: 2px solid #E3E0FB; }
-.karte.hinten { background: linear-gradient(135deg, #6C5CE7, #00B8D9); color: white; }
+         box-shadow: 0 16px 36px rgba(31,42,36,.10); }
+.karte.vorne  { background: white; border: 2px solid #E4DACA; }
+.karte.hinten { background: linear-gradient(135deg, #1F4D3A, #8B5E3C); color: white; }
 .karte .etikett { font-size: .8rem; letter-spacing: .12em; text-transform: uppercase; font-weight: 700; opacity: .7; margin-bottom: 10px; }
 .karte .inhalt  { font-size: 1.45rem; font-weight: 600; line-height: 1.45; white-space: pre-wrap; }
 .karte.hinten .inhalt { font-size: 1.15rem; font-weight: 400; }
@@ -537,15 +557,29 @@ html, body, [class*="css"], .stMarkdown, button, input, textarea { font-family: 
 /* Fragetyp-Kacheln */
 [data-testid="stPills"] button, [data-testid="stButtonGroup"] button { border-radius: 999px; padding: 8px 18px; font-weight: 600; }
 .typ-info { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 6px 0 18px 0; }
-.typ-karte { background: white; border: 2px solid #E3E0FB; border-radius: 16px; padding: 14px 16px; opacity: .55;
+.typ-karte { background: white; border: 2px solid #E4DACA; border-radius: 16px; padding: 14px 16px; opacity: .55;
              transition: all .25s ease; }
-.typ-karte.aktiv { opacity: 1; border-color: #6C5CE7; box-shadow: 0 10px 24px rgba(108,92,231,.18); transform: translateY(-2px); }
+.typ-karte.aktiv { opacity: 1; border-color: #1F4D3A; box-shadow: 0 10px 24px rgba(31,77,58,.18); transform: translateY(-2px); }
 .typ-symbol { font-size: 1.6rem; }
 .typ-titel { font-weight: 800; margin-top: 4px; }
-.typ-text { font-size: .88rem; color: #6B6890; margin-top: 2px; }
+.typ-text { font-size: .88rem; color: #6B5F52; margin-top: 2px; }
+
+/* Ordner in der Seitenleiste */
+.seiten-titel { font-size: 1.25rem; font-weight: 800; margin-bottom: 10px; }
+[data-testid="stSidebar"] .stButton > button { justify-content: flex-start; text-align: left; border-radius: 14px; padding: 10px 14px; }
+[data-testid="stSidebar"] .stButton > button[kind="primary"] { box-shadow: 0 8px 18px rgba(31,77,58,.25); }
+.ordner-kopf { margin: 18px 0 10px 0; padding: 12px 14px; border-radius: 14px; font-weight: 800;
+               background: linear-gradient(135deg, #1F4D3A, #8B5E3C); color: white; animation: einblenden .4s ease both; }
+.ordner-kopf span { display: block; font-weight: 400; font-size: .78rem; opacity: .85; margin-top: 2px; }
+.dok-karte { display: flex; gap: 10px; align-items: center; margin-bottom: 4px; }
+.dok-symbol { font-size: 1.5rem; width: 40px; height: 40px; display: grid; place-items: center;
+              border-radius: 12px; background: #EFE8DC; flex-shrink: 0; }
+.dok-name { font-weight: 700; line-height: 1.25; word-break: break-word; }
+.dok-info { font-size: .78rem; color: #6B5F52; margin-top: 2px; }
+[data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"] { background: white; border-radius: 16px; animation: einblenden .4s ease both; }
 
 /* Leerer Zustand */
-.leer { text-align: center; padding: 26px 10px 8px 10px; color: #6B6890; animation: einblenden .6s ease both; }
+.leer { text-align: center; padding: 26px 10px 8px 10px; color: #6B5F52; animation: einblenden .6s ease both; }
 .leer svg { animation: schweben 4s ease-in-out infinite; }
 </style>
 """
@@ -557,10 +591,10 @@ HERO_GRAFIK = """
   <rect x="22" y="92" width="106" height="24" rx="5" fill="#FFD166"/>
   <rect x="22" y="92" width="10" height="24" rx="3" fill="#F4A940"/>
   <rect x="30" y="66" width="92" height="24" rx="5" fill="#FFFFFF"/>
-  <rect x="30" y="66" width="10" height="24" rx="3" fill="#DAD5FF"/>
-  <rect x="38" y="76" width="70" height="3" rx="1.5" fill="#DAD5FF"/>
-  <rect x="18" y="40" width="100" height="24" rx="5" fill="#FF7A90"/>
-  <rect x="18" y="40" width="10" height="24" rx="3" fill="#E85D75"/>
+  <rect x="30" y="66" width="10" height="24" rx="3" fill="#E2D6C3"/>
+  <rect x="38" y="76" width="70" height="3" rx="1.5" fill="#E2D6C3"/>
+  <rect x="18" y="40" width="100" height="24" rx="5" fill="#5E8C61"/>
+  <rect x="18" y="40" width="10" height="24" rx="3" fill="#3F6B47"/>
   <g transform="translate(112 8)">
     <circle class="funke" cx="14" cy="16" r="22" fill="rgba(255,236,153,.35)"/>
     <path d="M14 2a12 12 0 0 0-7 21.7V28h14v-4.3A12 12 0 0 0 14 2z" fill="#FFE27A"/>
@@ -572,10 +606,10 @@ HERO_GRAFIK = """
 
 LEER_GRAFIK = """
 <svg width="90" height="70" viewBox="0 0 90 70" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-  <rect x="14" y="14" width="58" height="40" rx="8" fill="#DAD5FF"/>
-  <rect x="20" y="8" width="58" height="40" rx="8" fill="#FFFFFF" stroke="#B9B1F5" stroke-width="2"/>
-  <rect x="30" y="20" width="36" height="4" rx="2" fill="#B9B1F5"/>
-  <rect x="30" y="30" width="24" height="4" rx="2" fill="#DAD5FF"/>
+  <rect x="14" y="14" width="58" height="40" rx="8" fill="#E2D6C3"/>
+  <rect x="20" y="8" width="58" height="40" rx="8" fill="#FFFFFF" stroke="#B89B74" stroke-width="2"/>
+  <rect x="30" y="20" width="36" height="4" rx="2" fill="#B89B74"/>
+  <rect x="30" y="30" width="24" height="4" rx="2" fill="#E2D6C3"/>
 </svg>
 """
 
