@@ -1,8 +1,9 @@
 # Lern-App online stellen (für Freunde)
 
 Am Ende hast du einen Link wie `https://deine-lern-app.streamlit.app`.
-Deine Freunde öffnen ihn, legen ein Konto an (E-Mail + Passwort) und geben
-**ihren eigenen** Claude API-Schlüssel ein. Jeder sieht nur seine eigenen Ordner.
+Deine Freunde öffnen ihn und legen ein Konto an (E-Mail + Passwort).
+Einen API-Schlüssel brauchen sie nicht: Die App nutzt deinen Schlüssel.
+Jeder sieht nur seine eigenen Ordner.
 
 Alles ist kostenlos. Du brauchst drei Konten. Dauer: etwa 30 Minuten.
 
@@ -65,8 +66,18 @@ kommen nie zu GitHub. Das ist in der Datei `.gitignore` so eingestellt.
      SUPABASE_URL = "https://abcd1234.supabase.co"
      SUPABASE_KEY = "sb_publishable_..."
      ```
-   - **Keinen** Claude API-Schlüssel hier eintragen! Sonst würden alle Freunde
-     auf deine Kosten lernen. Online gibt jeder seinen eigenen Schlüssel ein.
+   - Dazu deinen Claude-Schlüssel, damit niemand einen eingeben muss:
+     ```
+     ANTHROPIC_API_KEY = "sk-ant-..."
+     ```
+     Dann lernen alle angemeldeten Nutzer **auf deine Kosten**. Setze deshalb
+     unbedingt ein Ausgabenlimit (siehe „Gut zu wissen“).
+   - Optional, sehr empfohlen: Nur bestimmte E-Mails zulassen, damit Fremde mit
+     dem Link kein Konto anlegen können:
+     ```
+     ERLAUBTE_EMAILS = ["du@beispiel.at", "freund@beispiel.at"]
+     ```
+     Neue Freunde fügst du später unter **App settings → Secrets** hinzu.
    - **Save** klicken.
 6. **Deploy** klicken. Nach 2–3 Minuten ist die App online.
 7. Den Link schickst du deinen Freunden.
@@ -76,9 +87,7 @@ kommen nie zu GitHub. Das ist in der Datei `.gitignore` so eingestellt.
 ## Was deine Freunde tun
 
 1. Link öffnen → Tab **Neues Konto** → E-Mail und Passwort → **Konto erstellen**.
-2. Links den eigenen Claude API-Schlüssel eingeben
-   (bekommt man unter https://console.anthropic.com → API Keys, mit Guthaben).
-3. Ordner anlegen und loslernen.
+2. Ordner anlegen und loslernen. Ein API-Schlüssel ist nicht nötig.
 
 ---
 
@@ -89,9 +98,16 @@ kommen nie zu GitHub. Das ist in der Datei `.gitignore` so eingestellt.
   im Supabase-Dashboard das Projekt öffnen → **Resume project**. Die Daten bleiben erhalten.
 - **Grenzen im Free Plan:** 2 aktive Projekte, 500 MB Datenbank, 50.000 aktive
   Nutzer pro Monat. Das reicht für dich und deine Freunde locker.
+- **Ausgabenlimit setzen:** Öffne https://platform.claude.com/settings/spend-limits,
+  klicke neben **Monthly spend limit** auf **Set limit** bzw. **Adjust limit** und
+  gib z. B. 10 $ ein. Ist das Limit erreicht, kann die App nichts mehr erstellen,
+  bis du es erhöhst oder ein neuer Monat beginnt. Lade außerdem nur so viel
+  Guthaben auf, wie du ausgeben willst.
+- **Günstiger lernen:** Opus 5.5 kostet pro Anfrage etwa doppelt so viel wie
+  Sonnet 5.5. Sag deinen Freunden ruhig, dass sie Sonnet wählen sollen.
 - **Datenschutz:** Ordner und Quizze deiner Freunde liegen bei Supabase
-  (Server in Frankfurt, wenn du die Region so wählst). API-Schlüssel werden
-  nirgends gespeichert, nur während der Sitzung benutzt.
+  (Server in Frankfurt, wenn du die Region so wählst). Dein API-Schlüssel
+  liegt nur in den Streamlit-Secrets und ist für Nutzer nicht sichtbar.
 - **Passwort vergessen:** gibt es in dieser Version noch nicht. Du kannst
   Nutzer im Supabase-Dashboard unter **Authentication → Users** verwalten.
 
@@ -103,4 +119,5 @@ kommen nie zu GitHub. Das ist in der Datei `.gitignore` so eingestellt.
 - Supabase Pausieren nach 7 Tagen, Daten bleiben erhalten: https://supabase.com/docs/guides/platform/free-project-pausing
 - Supabase Login mit E-Mail/Passwort, E-Mail-Bestätigung standardmäßig an: https://supabase.com/docs/guides/auth/passwords
 - Streamlit Community Cloud ist kostenlos und nutzt GitHub (auch private Repositories): https://docs.streamlit.io/deploy/streamlit-community-cloud
+- Ausgabenlimits in der Claude Console: https://platform.claude.com/docs/en/api/rate-limits#setting-your-own-spend-limit
 - Secrets in Streamlit Community Cloud eintragen: https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/secrets-management

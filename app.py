@@ -188,6 +188,9 @@ def mit_fehlermeldung(funktion, *args):
     except anthropic.RateLimitError:
         st.error("Zu viele Anfragen oder Guthaben/Ausgabenlimit erreicht. Bitte kurz warten oder Guthaben prüfen.")
     except anthropic.BadRequestError as e:
+        if "usage limits" in str(e.message).lower():
+            st.error("Das monatliche Ausgabenlimit ist erreicht. Bitte später wieder versuchen.")
+            return None
         st.error(f"Die Anfrage wurde abgelehnt (z. B. Datei zu groß, max. 32 MB / 600 Seiten): {e.message}")
     except anthropic.APIConnectionError:
         st.error("Keine Verbindung zum Internet oder zu Anthropic.")
@@ -221,6 +224,17 @@ def supabase_client():
     return st.session_state["supabase"]
 
 
+def email_erlaubt(email: str) -> bool:
+    """Optional: Wenn ERLAUBTE_EMAILS in den Secrets steht, dürfen nur diese Adressen rein."""
+    try:
+        erlaubt = st.secrets.get("ERLAUBTE_EMAILS")
+    except Exception:
+        erlaubt = None
+    if not erlaubt:
+        return True
+    return email.strip().lower() in {e.strip().lower() for e in erlaubt}
+
+
 def anmeldung() -> None:
     """Zeigt Anmelden/Registrieren, bis man angemeldet ist."""
     if st.session_state.get("user_id"):
@@ -236,6 +250,9 @@ def anmeldung() -> None:
             email = st.text_input("E-Mail")
             passwort = st.text_input("Passwort", type="password")
             if st.form_submit_button("Anmelden", type="primary"):
+                if not email_erlaubt(email):
+                    st.error("Diese E-Mail ist für die App nicht freigeschaltet. Frag die Person, die dir den Link geschickt hat.")
+                    st.stop()
                 try:
                     antwort = supabase_client().auth.sign_in_with_password(
                         {"email": email.strip(), "password": passwort})
@@ -252,6 +269,9 @@ def anmeldung() -> None:
             email = st.text_input("E-Mail", key="neu_email")
             passwort = st.text_input("Passwort (mindestens 6 Zeichen)", type="password", key="neu_pw")
             if st.form_submit_button("Konto erstellen", type="primary"):
+                if not email_erlaubt(email):
+                    st.error("Diese E-Mail ist für die App nicht freigeschaltet. Frag die Person, die dir den Link geschickt hat.")
+                    st.stop()
                 try:
                     antwort = supabase_client().auth.sign_up({"email": email.strip(), "password": passwort})
                     if antwort.session:
@@ -605,10 +625,11 @@ with st.sidebar:
         st.caption(f"👤 Angemeldet als {st.session_state.get('user_email', '')}")
         if st.button("Abmelden"):
             abmelden()
-    # Online wird nie ein hinterlegter Schlüssel benutzt: jeder gibt seinen eigenen ein.
-    vorbelegt = "" if ONLINE else api_schluessel_vorbelegt()
+    # Steht ANTHROPIC_API_KEY in den Secrets, wird er für alle benutzt (online: dein Schlüssel
+    # für alle angemeldeten Nutzer). Sonst gibt man ihn hier selbst ein.
+    vorbelegt = api_schluessel_vorbelegt()
     if vorbelegt:
-        st.success("Ein API-Schlüssel ist auf diesem Computer hinterlegt.")
+        st.success("✅ Claude ist bereit. Du musst keinen Schlüssel eingeben.")
         api_key = vorbelegt
     else:
         api_key = st.text_input(
