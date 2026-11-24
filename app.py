@@ -112,6 +112,15 @@ def api_schluessel_vorbelegt() -> str:
     return os.environ.get("ANTHROPIC_API_KEY", "")
 
 
+def unterstuetzen_link() -> str:
+    """Optionaler Spenden-Link (z. B. revolut.me) aus den Secrets: REVOLUT_LINK."""
+    try:
+        link = str(st.secrets.get("REVOLUT_LINK", "")).strip()
+    except Exception:
+        return ""  # keine secrets.toml vorhanden
+    return link if link.startswith("https://") else ""
+
+
 def dateien_zu_bloecken(dateien, notizen_text: str) -> list:
     """Wandelt hochgeladene Dateien in Inhalte um, die Claude lesen kann."""
     bloecke = []
@@ -821,6 +830,11 @@ with st.sidebar:
     modell = MODELLE[modell_name]
 
     ordner_seitenleiste()
+
+    if unterstuetzen_link():
+        st.divider()
+        st.caption("Dir gefällt Uniwolf? Hilf mit, die Kosten für Claude zu tragen.")
+        st.link_button("☕ Unterstützen", unterstuetzen_link(), use_container_width=True)
 
 # --- Schritt 1: Unterlagen ---
 schritt(1, "Unterlagen hochladen")

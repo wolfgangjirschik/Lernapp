@@ -78,6 +78,12 @@ kommen nie zu GitHub. Das ist in der Datei `.gitignore` so eingestellt.
      ERLAUBTE_EMAILS = ["du@beispiel.at", "freund@beispiel.at"]
      ```
      Neue Freunde fügst du später unter **App settings → Secrets** hinzu.
+   - Optional: Ein Knopf **☕ Unterstützen** in der Seitenleiste, über den Freunde dir
+     etwas schicken können (dein Revolut-Zahlungslink):
+     ```
+     REVOLUT_LINK = "https://revolut.me/dein-name"
+     ```
+     Ohne diese Zeile erscheint kein Knopf.
    - **Save** klicken.
 6. **Deploy** klicken. Nach 2–3 Minuten ist die App online.
 7. Den Link schickst du deinen Freunden.
@@ -120,4 +126,5 @@ kommen nie zu GitHub. Das ist in der Datei `.gitignore` so eingestellt.
 - Supabase Login mit E-Mail/Passwort, E-Mail-Bestätigung standardmäßig an: https://supabase.com/docs/guides/auth/passwords
 - Streamlit Community Cloud ist kostenlos und nutzt GitHub (auch private Repositories): https://docs.streamlit.io/deploy/streamlit-community-cloud
 - Ausgabenlimits in der Claude Console: https://platform.claude.com/docs/en/api/rate-limits#setting-your-own-spend-limit
+- Revolut Zahlungslink erstellen (Zahlungen > Neu > Link > Geld anfordern): https://help.revolut.com/help/adding-money/with-money-from-friends-or-relatives/requesting-money/
 - Secrets in Streamlit Community Cloud eintragen: https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/secrets-management
