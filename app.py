@@ -417,7 +417,7 @@ def kosten_cent(modell: str, antwort) -> float:
     ein_p, aus_p, lese_p = preis
     usd = (neu * ein_p + schreiben * ein_p * 1.25 + lesen * lese_p + aus * aus_p) / 1_000_000
     kurs = float(geheimnis("EURO_PRO_DOLLAR", 0.90))
-    aufschlag = 1 + float(geheimnis("AUFSCHLAG_PROZENT", 0)) / 100
+    aufschlag = 1 + float(geheimnis("AUFSCHLAG_PROZENT", 20)) / 100
     return round(usd * kurs * aufschlag * 100, 4)
 
 

@@ -97,7 +97,7 @@ echten Kosten ab. Bei 0 € kann man nichts mehr erstellen, bis aufgeladen wird.
    REVOLUT_LINK = "https://revolut.me/deinname"
    ```
    Optional: `EURO_PRO_DOLLAR = 0.90` (Wechselkurs, Claude rechnet in Dollar) und
-   `AUFSCHLAG_PROZENT = 0` (Aufschlag auf die echten Kosten).
+   `AUFSCHLAG_PROZENT = 20` (dein Aufschlag auf die echten Kosten, Standard 20 %).
 3. **Aufladen:** Freunde zahlen über den Knopf in der App und schreiben ihre E-Mail in die
    Nachricht. Du siehst die Zahlung in Revolut und schreibst sie in der App unter
    **🛠️ Guthaben verwalten** gut (nur für dich sichtbar).
