@@ -18,6 +18,7 @@ from typing import List, Literal
 
 import anthropic
 import streamlit as st
+from streamlit.errors import StreamlitAPIException
 from pydantic import BaseModel
 
 # ---------------------------------------------------------------------------
@@ -333,6 +334,17 @@ def daten_speichern(daten: dict) -> None:
     zwischen.replace(DATEN_DATEI)  # erst fertig schreiben, dann austauschen: so geht nichts kaputt
 
 
+def meldung(text: str, symbol: str) -> None:
+    """Merkt sich eine kurze Meldung; sie erscheint nach dem nächsten Neuladen (st.toast)."""
+    st.session_state["meldung"] = (text, symbol)
+
+
+def meldung_zeigen() -> None:
+    if st.session_state.get("meldung"):
+        text, symbol = st.session_state.pop("meldung")
+        st.toast(text, icon=symbol)
+
+
 def dokument_speichern(typ: str, inhalt) -> None:
     """Speichert ein neues Ergebnis im gerade geöffneten Ordner (falls einer gewählt ist)."""
     ordner_id = st.session_state.get("ordner_id")
@@ -352,7 +364,7 @@ def dokument_speichern(typ: str, inhalt) -> None:
     }
     daten_speichern(daten)
     st.session_state[f"dok_{typ}"] = dok_id
-    st.toast(f"Gespeichert in „{daten['ordner'][ordner_id]['name']}“", icon="💾")
+    meldung(f"Gespeichert in „{daten['ordner'][ordner_id]['name']}“", "💾")
 
 
 def quiz_ergebnis_speichern(ergebnisse: dict) -> None:
@@ -379,9 +391,22 @@ def dokument_oeffnen(dok_id: str, dok: dict) -> None:
         alt = dok.get("ergebnis")
         st.session_state["quiz_ergebnis"] = {int(k): tuple(v) for k, v in alt.items()} if alt else None
     st.session_state[f"dok_{typ}"] = dok_id
-    st.toast(f"„{dok['name']}“ geöffnet. Schau im Tab {DOK_NAME[typ]}.", icon="📂")
+    meldung(f"„{dok['name']}“ geöffnet. Schau im Tab {DOK_NAME[typ]}.", "📂")
 
 
+def bereich_neu_laden() -> None:
+    """Lädt nur die Seitenleiste neu (schneller, ruhiger). Geht das nicht, die ganze Seite."""
+    try:
+        st.rerun(scope="fragment")
+    except StreamlitAPIException:
+        st.rerun()
+
+
+def ordner_umschalten(i: str) -> None:
+    st.session_state["ordner_id"] = None if st.session_state.get("ordner_id") == i else i
+
+
+@st.fragment
 def ordner_seitenleiste() -> None:
     """Ordner und Dokumente in der Seitenleiste: Ordner als Kacheln, Dokumente als Karten."""
     daten = daten_laden()
@@ -400,10 +425,9 @@ def ordner_seitenleiste() -> None:
     for i in ordner_ids:
         aktiv = i == ordner_id
         symbol = "📂" if aktiv else "📁"
-        if st.button(f"{symbol}  {daten['ordner'][i]['name']}  ·  {anzahl(i)}", key=f"ordner_btn_{i}",
-                     type="primary" if aktiv else "secondary", use_container_width=True):
-            st.session_state["ordner_id"] = None if aktiv else i
-            st.rerun()
+        st.button(f"{symbol}  {daten['ordner'][i]['name']}  ·  {anzahl(i)}", key=f"ordner_btn_{i}",
+                  type="primary" if aktiv else "secondary", use_container_width=True,
+                  on_click=ordner_umschalten, args=(i,))
 
     with st.popover("➕ Neuer Ordner", use_container_width=True):
         with st.form("neuer_ordner", clear_on_submit=True, border=False):
@@ -413,7 +437,7 @@ def ordner_seitenleiste() -> None:
                 daten["ordner"][neu_id] = {"name": name.strip()}
                 daten_speichern(daten)
                 st.session_state["ordner_id"] = neu_id
-                st.rerun()
+                bereich_neu_laden()
 
     if not ordner_ids:
         st.caption("Noch keine Ordner. Lege einen an, dann werden deine Ergebnisse dort gespeichert.")
@@ -452,13 +476,14 @@ def ordner_seitenleiste() -> None:
             links, rechts = st.columns([3, 1])
             if links.button("Öffnen", key=f"oeffnen_{dok_id}", type="primary", use_container_width=True):
                 dokument_oeffnen(dok_id, dok)
+                st.rerun()  # ganze Seite, damit das Dokument im Tab erscheint
             with rechts.popover("✏️", use_container_width=True):
                 neuer_name = st.text_input("Name", value=dok["name"], key=f"name_{dok_id}")
                 if st.button("✏️ Umbenennen", key=f"umbenennen_{dok_id}", use_container_width=True):
                     if neuer_name.strip():
                         daten["dokumente"][dok_id]["name"] = neuer_name.strip()
                         daten_speichern(daten)
-                        st.rerun()
+                        bereich_neu_laden()
                 andere = [i for i in ordner_ids if i != ordner_id]
                 if andere:
                     ziel = st.selectbox("Verschieben nach", andere,
@@ -466,26 +491,26 @@ def ordner_seitenleiste() -> None:
                     if st.button("📦 Verschieben", key=f"verschieben_{dok_id}", use_container_width=True):
                         daten["dokumente"][dok_id]["ordner_id"] = ziel
                         daten_speichern(daten)
-                        st.rerun()
+                        bereich_neu_laden()
                 sicher = st.checkbox("Ja, wirklich löschen", key=f"sicher_{dok_id}")
                 if st.button("🗑️ Löschen", key=f"loeschen_{dok_id}", disabled=not sicher, use_container_width=True):
                     del daten["dokumente"][dok_id]
                     daten_speichern(daten)
-                    st.rerun()
+                    bereich_neu_laden()
 
     with st.popover("⚙️ Ordner bearbeiten", use_container_width=True):
         ordner_name = st.text_input("Ordnername", value=daten["ordner"][ordner_id]["name"], key=f"oname_{ordner_id}")
         if st.button("✏️ Ordner umbenennen", use_container_width=True) and ordner_name.strip():
             daten["ordner"][ordner_id]["name"] = ordner_name.strip()
             daten_speichern(daten)
-            st.rerun()
+            bereich_neu_laden()
         sicher = st.checkbox("Ordner mit allen Dokumenten löschen", key=f"osicher_{ordner_id}")
         if st.button("🗑️ Ordner löschen", disabled=not sicher, use_container_width=True):
             daten["dokumente"] = {i: d for i, d in daten["dokumente"].items() if d["ordner_id"] != ordner_id}
             del daten["ordner"][ordner_id]
             daten_speichern(daten)
             st.session_state["ordner_id"] = None
-            st.rerun()
+            bereich_neu_laden()
 
 
 # ---------------------------------------------------------------------------
@@ -528,6 +553,11 @@ html, body, [class*="css"], .stMarkdown, button, input, textarea { font-family: 
 /* Buttons */
 .stButton > button, .stDownloadButton > button, [data-testid="stFormSubmitButton"] > button {
     border-radius: 12px; font-weight: 600; transition: transform .15s ease, box-shadow .15s ease; }
+/* Sanfte Klicks: kurzes Eindrücken, kein Ausgrauen beim Neuladen */
+.stButton > button:active { transform: scale(.97) !important; transition: transform .08s ease; }
+[data-stale="true"] { opacity: 1 !important; transition: none !important; }
+[data-testid="stSidebar"] .stButton > button { transition: background-color .25s ease, color .25s ease,
+    box-shadow .25s ease, transform .15s ease; }
 .stButton > button:hover, .stDownloadButton > button:hover, [data-testid="stFormSubmitButton"] > button:hover {
     transform: translateY(-2px); box-shadow: 0 8px 18px rgba(31,77,58,.25); }
 
@@ -671,6 +701,7 @@ def karte_anzeigen(text, hinten):
 
 st.set_page_config(page_title="Uniwolf", page_icon="🐺", layout="wide")
 kopfbereich()
+meldung_zeigen()
 if ONLINE:
     anmeldung()
 
@@ -785,7 +816,17 @@ with tab_karten:
             st.rerun()
 
 # Quiz
-with tab_quiz:
+def fragetyp_umschalten(t: str) -> None:
+    typen = st.session_state["fragetypen"]
+    if t in typen:
+        typen.remove(t)
+    else:
+        typen.append(t)
+
+
+@st.fragment
+def quiz_einstellungen() -> None:
+    """Fragetypen, Anzahl und Erstellen-Knopf. Als Fragment lädt ein Klick nur diesen Teil neu."""
     st.markdown("**Welche Fragetypen möchtest du?** Klick auf die Felder (mehrere möglich).")
     if "fragetypen" not in st.session_state:
         st.session_state["fragetypen"] = list(FRAGETYPEN.keys())
@@ -793,15 +834,11 @@ with tab_quiz:
         for spalte, t in zip(st.columns(3), FRAGETYPEN):
             aktiv = t in st.session_state["fragetypen"]
             haken = "✅ " if aktiv else ""
-            if spalte.button(
+            spalte.button(
                 f"{TYP_SYMBOL[t]}  \n**{haken}{TYP_TITEL[t]}**  \n{TYP_TEXT[t]}",
                 key=f"typ_{t}", type="primary" if aktiv else "secondary", use_container_width=True,
-            ):
-                if aktiv:
-                    st.session_state["fragetypen"].remove(t)
-                else:
-                    st.session_state["fragetypen"].append(t)
-                st.rerun()
+                on_click=fragetyp_umschalten, args=(t,),
+            )
     gewaehlte_typen = [t for t in FRAGETYPEN if t in st.session_state["fragetypen"]]
     anzahl_fragen = st.slider("Anzahl Fragen", 3, 20, 6)
     if not gewaehlte_typen:
@@ -830,6 +867,11 @@ with tab_quiz:
             st.session_state["quiz_ergebnis"] = None
             st.session_state["quiz_runde"] = st.session_state.get("quiz_runde", 0) + 1
             dokument_speichern("quiz", ergebnis.model_dump())
+            st.rerun()  # ganze Seite: Quiz anzeigen und Ordner aktualisieren
+
+
+with tab_quiz:
+    quiz_einstellungen()
 
     if not st.session_state.get("quiz"):
         leer_hinweis("Noch kein Quiz. Wähle die Fragetypen und klick auf den Button.")
