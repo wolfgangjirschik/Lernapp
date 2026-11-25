@@ -1177,8 +1177,15 @@ with tab_quiz:
             if offene:
                 auftrag = (
                     "Bewerte die Antworten eines Studierenden auf offene Quizfragen. "
-                    "Vergleiche mit der Musterlösung und den Unterlagen. Sei fair: Andere Formulierungen sind ok, "
-                    "wenn der Inhalt stimmt. ergebnis ist 'richtig', 'teilweise richtig' oder 'falsch'. "
+                    "Vergleiche mit der Musterlösung und den Unterlagen. Bewerte großzügig und nach dem Sinn, "
+                    "nicht nach dem Wortlaut: Die Person soll zeigen, dass sie den Inhalt verstanden hat, "
+                    "nicht die Folien auswendig wiedergeben. Eigene Worte, Umschreibungen, Beispiele, "
+                    "Alltagssprache statt Fachbegriff, andere Reihenfolge, Stichpunkte sowie Tipp- und "
+                    "Rechtschreibfehler sind in Ordnung. "
+                    "'richtig': Der Kern der Musterlösung stimmt, auch wenn Nebensächliches oder Details fehlen. "
+                    "'teilweise richtig': Ein wichtiger Teil stimmt, aber ein wesentlicher Punkt fehlt oder ist unklar. "
+                    "'falsch': Nur wenn der Sinn falsch ist, ein klarer inhaltlicher Fehler vorliegt "
+                    "oder die Antwort nichts mit der Frage zu tun hat. Im Zweifel die bessere Bewertung wählen. "
                     "feedback: 1 bis 3 freundliche Sätze, was gut war und was fehlt. "
                     "frage_nr ist die Nummer aus der Liste.\n\n"
                 )
