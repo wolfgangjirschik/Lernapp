@@ -940,7 +940,9 @@ def karte_anzeigen(text, hinten):
 # Oberfläche
 # ---------------------------------------------------------------------------
 
-st.set_page_config(page_title="Uniwolf", page_icon="🐺", layout="wide")
+# App-Symbol (Browser-Tab): der Uniwolf-Kopf als Bild, sonst das Emoji
+ICON = Path(__file__).parent / "uniwolf_icon.png"
+st.set_page_config(page_title="Uniwolf", page_icon=str(ICON) if ICON.exists() else "🐺", layout="wide")
 kopfbereich()
 meldung_zeigen()
 if ONLINE:
