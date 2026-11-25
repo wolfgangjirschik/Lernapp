@@ -86,8 +86,9 @@ kommen nie zu GitHub. Das ist in der Datei `.gitignore` so eingestellt.
 
 ## Guthaben (Freunde zahlen selbst)
 
-Jedes neue Konto bekommt einmalig **5 € Startguthaben**. Jede Anfrage an Claude zieht die
-echten Kosten ab. Bei 0 € kann man nichts mehr erstellen, bis aufgeladen wird.
+Neue Konten starten mit **0 €**. Um etwas zu erstellen, lädt man Guthaben auf. Die Zahlung ist ein
+**Kostenersatz für die Claude-Nutzung**. Jede Anfrage zieht die Kosten ab. Bei 0 € kann man nichts
+mehr erstellen, bis aufgeladen wird.
 
 1. **Supabase → SQL Editor:** Inhalt von `supabase_guthaben.sql` hineinkopieren. In der
    **letzten Zeile** `deine-email@beispiel.at` durch deine E-Mail ersetzen → **Run**.
@@ -104,8 +105,8 @@ echten Kosten ab. Bei 0 € kann man nichts mehr erstellen, bis aufgeladen wird.
 
 Sicherheit: Nutzer können ihr Guthaben nur lesen. Abziehen und Aufladen erledigt die Datenbank
 selbst, Aufladen nur für E-Mails in der Tabelle `guthaben_admins`.
-Wichtig: Jede neue E-Mail bekommt 5 €. Behalte daher `ERLAUBTE_EMAILS` oder schalte in Supabase
-**Confirm email** wieder ein.
+Hast du das Guthaben schon früher mit Startguthaben eingerichtet, führe zusätzlich einmal
+`supabase_ohne_startguthaben.sql` aus.
 
 ---
 

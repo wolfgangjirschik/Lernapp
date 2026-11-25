@@ -2,7 +2,7 @@
 -- WICHTIG: In der letzten Zeile deine eigene E-Mail eintragen (die, mit der du dich in Uniwolf anmeldest).
 --
 -- Sicherheit: Nutzer dürfen ihr Guthaben nur LESEN. Ändern geht nur über die Funktionen unten:
---   guthaben_stand()     gibt beim ersten Mal 5 € Startguthaben (pro E-Mail nur einmal)
+--   guthaben_stand()     legt beim ersten Mal ein Konto mit 0 € an (kein Startguthaben)
 --   guthaben_abbuchen()  zieht Kosten ab (nur abziehen, nie dazugeben)
 --   guthaben_aufladen()  nur für Admins (Tabelle guthaben_admins)
 
@@ -42,7 +42,7 @@ drop policy if exists "Eigene Buchungen lesen" on public.guthaben_buchungen;
 create policy "Eigene Buchungen lesen" on public.guthaben_buchungen
   for select to authenticated using (auth.uid() = user_id);
 
--- Kontostand holen (legt beim ersten Mal das Konto mit 5 € an)
+-- Kontostand holen (legt beim ersten Mal das Konto mit 0 € an)
 create or replace function public.guthaben_stand() returns numeric
 language plpgsql security definer set search_path = public as $$
 declare
@@ -54,7 +54,7 @@ begin
   if uid is null then raise exception 'nicht angemeldet'; end if;
   if not exists (select 1 from guthaben where user_id = uid) then
     insert into startguthaben_vergeben (email) values (mail) on conflict do nothing;
-    if found then start := 500; end if;  -- 500 Cent = 5 €
+    -- kein Startguthaben mehr (früher 500 Cent = 5 €)
     insert into guthaben (user_id, email, cent) values (uid, mail, start) on conflict do nothing;
     if start > 0 then
       insert into guthaben_buchungen (user_id, cent, grund) values (uid, start, 'Startguthaben');

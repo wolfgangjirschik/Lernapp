@@ -173,7 +173,7 @@ def frage_claude(api_key, modell, bloecke, auftrag, format_klasse=None, anzeige=
     if zahlt_mit_guthaben:
         stand = guthaben_stand()
         if stand is not None and stand <= 0:
-            raise RuntimeError("Dein Guthaben ist aufgebraucht. Lade es links unter „Guthaben aufladen“ auf.")
+            raise RuntimeError("Kein Guthaben. Um etwas zu erstellen, lade links unter „Guthaben aufladen“ Guthaben auf (Kostenersatz für Claude).")
     client = anthropic.Anthropic(api_key=api_key)
     extra = {}
     if modell in MODELLE_MIT_FALLBACK:
@@ -391,7 +391,7 @@ def guthaben_pflicht(api_key: str) -> bool:
 
 
 def guthaben_stand():
-    """Kontostand in Cent. Beim allerersten Mal schreibt die Datenbank das Startguthaben gut."""
+    """Kontostand in Cent. Beim allerersten Mal legt die Datenbank ein leeres Konto (0 €) an."""
     try:
         stand = float(supabase_client().rpc("guthaben_stand").execute().data)
     except Exception as fehler:
@@ -447,17 +447,18 @@ def guthaben_seitenleiste() -> None:
         return
     st.metric("💰 Dein Guthaben", euro(stand))
     if stand <= 0:
-        st.error("Dein Guthaben ist aufgebraucht. Lade es auf, um weiterzulernen.")
+        st.error("Kein Guthaben. Lade Guthaben auf, um Zusammenfassungen, Karteikarten und Quizze zu erstellen.")
     with st.popover("➕ Guthaben aufladen", use_container_width=True):
         email = st.session_state.get("user_email", "")
         st.markdown(
+            "Das Guthaben ist ein **Kostenersatz für die Claude-Nutzung**: Jede Anfrage an Claude kostet Geld, das davon abgezogen wird.\n\n"
             "1. Klick unten und schick den Betrag, den du aufladen willst.\n"
             f"2. Schreib als **Nachricht/Verwendungszweck** deine E-Mail: `{email}`\n"
-            "3. Sobald die Zahlung da ist, wird sie dir gutgeschrieben (nicht automatisch, meist am selben Tag)."
+            "3. Sobald der Kostenersatz da ist, wird er dir gutgeschrieben (nicht automatisch, meist am selben Tag)."
         )
         link = geheimnis("REVOLUT_LINK", "")
         if str(link).startswith("https://"):
-            st.link_button("💳 Bezahlen (Revolut, Karte, Apple Pay)", link, use_container_width=True)
+            st.link_button("💳 Kostenersatz zahlen (Revolut, Karte, Apple Pay)", link, use_container_width=True)
         else:
             st.caption("Frag die Person, die dir den Link geschickt hat, wie du zahlen kannst.")
     if ist_admin_anzeige():
