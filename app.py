@@ -546,14 +546,10 @@ def meldung_zeigen() -> None:
 
 
 def dokument_speichern(typ: str, inhalt, ordner_id=None, ergebnis=None) -> None:
-    """Speichert ein Ergebnis im gewählten Ordner, sonst im gerade geöffneten Ordner (falls einer offen ist)."""
-    st.session_state[f"dok_{typ}"] = None  # neues Ergebnis: noch in keinem Ordner
-    ordner_id = ordner_id or st.session_state.get("ordner_id")
-    if not ordner_id:
-        return
+    """Speichert jedes neue Ergebnis sofort. Ohne Ziel landet es in „Neu erstellt“ (ordner_id None)."""
     daten = daten_laden()
     if ordner_id not in daten["ordner"]:
-        return
+        ordner_id = None
     dok_id = uuid.uuid4().hex[:10]
     daten["dokumente"][dok_id] = {
         "name": f"{DOK_NAME[typ]} vom {datetime.now():%d.%m.%Y, %H:%M}",
@@ -565,48 +561,60 @@ def dokument_speichern(typ: str, inhalt, ordner_id=None, ergebnis=None) -> None:
     }
     daten_speichern(daten)
     st.session_state[f"dok_{typ}"] = dok_id
-    meldung(f"Gespeichert in „{daten['ordner'][ordner_id]['name']}“", "💾")
+    ort = ordner_pfad_text(daten, ordner_id) if ordner_id else "📥 Neu erstellt"
+    meldung(f"Gespeichert in {ort}. Du kannst es links in einen Ordner ziehen.", "💾")
 
 
-NEUER_ORDNER = "__neu__"
+def ordner_pfad(daten: dict, oid) -> list:
+    """Liste der Ordner-IDs von ganz oben bis oid (z. B. Uni Salzburg › EBG › Lebensmittellehre)."""
+    pfad, gesehen = [], set()
+    while oid and oid in daten["ordner"] and oid not in gesehen:
+        gesehen.add(oid)
+        pfad.insert(0, oid)
+        oid = daten["ordner"][oid].get("eltern")
+    return pfad
+
+
+def ordner_pfad_text(daten: dict, oid) -> str:
+    return " › ".join(daten["ordner"][i]["name"] for i in ordner_pfad(daten, oid)) or "Meine Ordner"
+
+
+def unterordner(daten: dict, eltern) -> list:
+    ids = [i for i, o in daten["ordner"].items() if o.get("eltern") == eltern]
+    return sorted(ids, key=lambda i: daten["ordner"][i]["name"].lower())
+
+
+def alle_unterordner(daten: dict, oid) -> set:
+    """oid und alle Ordner darin (auch tiefer)."""
+    ergebnis, offen = set(), [oid]
+    while offen:
+        aktuell = offen.pop()
+        if aktuell in ergebnis:
+            continue
+        ergebnis.add(aktuell)
+        offen.extend(i for i, o in daten["ordner"].items() if o.get("eltern") == aktuell)
+    return ergebnis
+
+
+def dokumente_in(daten: dict, oid) -> list:
+    """Dokumente direkt in einem Ordner (None = „Neu erstellt“), neueste zuerst."""
+    if oid is None:  # „Neu erstellt“: auch Dokumente, deren Ordner es nicht mehr gibt
+        docs = [(i, d) for i, d in daten["dokumente"].items() if d.get("ordner_id") not in daten["ordner"]]
+    else:
+        docs = [(i, d) for i, d in daten["dokumente"].items() if d.get("ordner_id") == oid]
+    return sorted(docs, key=lambda x: x[1]["erstellt"], reverse=True)
 
 
 def in_ordner_speichern(typ: str) -> None:
-    """Zeigt unter einem Ergebnis, in welchem Ordner es liegt, oder einen Knopf zum Speichern."""
+    """Zeigt unter einem Ergebnis, wo es gespeichert ist."""
     daten = daten_laden()
     dok_id = st.session_state.get(f"dok_{typ}")
     if dok_id in daten["dokumente"]:
-        ordner = daten["ordner"].get(daten["dokumente"][dok_id]["ordner_id"], {}).get("name", "?")
-        st.caption(f"💾 Gespeichert im Ordner „{ordner}“")
-        return
-    with st.popover("📁 In Ordner speichern"):
-        ordner_ids = sorted(daten["ordner"], key=lambda i: daten["ordner"][i]["name"].lower())
-        wahl = st.selectbox(
-            "Ordner", ordner_ids + [NEUER_ORDNER], key=f"ziel_ordner_{typ}",
-            format_func=lambda i: "➕ Neuer Ordner …" if i == NEUER_ORDNER else daten["ordner"][i]["name"],
-        )
-        neuer_name = ""
-        if wahl == NEUER_ORDNER:
-            neuer_name = st.text_input("Name des neuen Ordners", key=f"neuer_ordner_{typ}",
-                                       placeholder="z. B. Statistik 1")
-        if st.button("💾 Speichern", key=f"speichern_{typ}", type="primary"):
-            if wahl == NEUER_ORDNER and not neuer_name.strip():
-                st.warning("Bitte gib dem neuen Ordner einen Namen.")
-                return
-            if wahl == NEUER_ORDNER:
-                wahl = uuid.uuid4().hex[:10]
-                daten["ordner"][wahl] = {"name": neuer_name.strip()}
-                daten_speichern(daten)
-            if typ == "zusammenfassung":
-                inhalt = st.session_state["zusammenfassung"]
-            elif typ == "karten":
-                inhalt = {"karten": [k.model_dump() for k in st.session_state["karten"]]}
-            else:
-                inhalt = {"fragen": [f.model_dump() for f in st.session_state["quiz"]]}
-            alt = st.session_state.get("quiz_ergebnis") if typ == "quiz" else None
-            ergebnis = {str(k): list(v) for k, v in alt.items()} if alt else None
-            dokument_speichern(typ, inhalt, ordner_id=wahl, ergebnis=ergebnis)
-            st.rerun()
+        oid = daten["dokumente"][dok_id].get("ordner_id")
+        if oid in daten["ordner"]:
+            st.caption(f"💾 Gespeichert in 📁 {ordner_pfad_text(daten, oid)}")
+        else:
+            st.caption("💾 Gespeichert in 📥 Neu erstellt. Zieh es links in einen Ordner.")
 
 
 def quiz_ergebnis_speichern(ergebnisse: dict) -> None:
@@ -636,6 +644,160 @@ def dokument_oeffnen(dok_id: str, dok: dict) -> None:
     meldung(f"„{dok['name']}“ geöffnet. Schau im Tab {DOK_NAME[typ]}.", "📂")
 
 
+# ---------------------------------------------------------------------------
+# Ordner wie im Finder: Pfad oben, Ordner und Dokumente als Liste.
+# Dokumente und Ordner lassen sich mit der Maus in andere Ordner ziehen.
+# Gebaut als kleine eigene Streamlit-Komponente (st.components.v2), weil
+# Streamlit selbst kein Ziehen mit der Maus kann.
+# ---------------------------------------------------------------------------
+
+FINDER_CSS = """
+.finder { font-family: var(--st-font, sans-serif); font-size: 14px; color: #1F2A24; user-select: none; }
+.pfad { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin-bottom: 8px; }
+.krume { padding: 4px 8px; border-radius: 8px; cursor: pointer; font-weight: 600; border: 2px solid transparent; }
+.krume:hover { background: #EFE8DC; }
+.krume.jetzt { color: #1F4D3A; cursor: default; }
+.trenn { color: #9A8B78; }
+.box { background: white; border: 1px solid #E4DACA; border-radius: 12px; overflow: hidden; }
+.zeile { display: flex; align-items: center; gap: 10px; padding: 8px 10px; cursor: pointer;
+         border-bottom: 1px solid #F1EADF; border-left: 3px solid transparent; transition: background .12s; }
+.zeile:last-child { border-bottom: none; }
+.zeile:hover { background: #F6F1E8; }
+.zeile .sym { font-size: 18px; width: 22px; text-align: center; }
+.zeile .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.zeile .info { font-size: 11px; color: #8A7B68; white-space: nowrap; }
+.zeile .pfeil { color: #9A8B78; }
+.zeile.offen { background: #E7F0EA; border-left-color: #1F4D3A; }
+.leer { padding: 12px; color: #8A7B68; font-size: 13px; text-align: center; }
+.titel { font-size: 12px; font-weight: 700; color: #6B5F52; text-transform: uppercase; letter-spacing: .04em;
+         margin: 14px 2px 6px 2px; }
+.ablage { border: 2px dashed #C9B79C; border-radius: 12px; background: #FBF8F3; }
+.ablage .zeile { background: transparent; }
+.ziel { background: #DCEBE1 !important; border-color: #1F4D3A !important; outline: 2px solid #1F4D3A; }
+.zieht { opacity: .45; }
+.hinweis { font-size: 11px; color: #8A7B68; margin-top: 6px; }
+"""
+
+FINDER_JS = """
+export default function(component) {
+  const { data, setTriggerValue, parentElement } = component;
+  parentElement.innerHTML = '';
+  const stil = document.createElement('style');  // Aussehen direkt mitgeben (sicher in jeder Version)
+  stil.textContent = data.css;
+  parentElement.appendChild(stil);
+  const wurzel = document.createElement('div');
+  wurzel.className = 'finder';
+  parentElement.appendChild(wurzel);
+  const esc = (t) => String(t).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  let gezogen = null;
+
+  function ziel(el, zielId, nurDok) {
+    el.addEventListener('dragover', (e) => {
+      if (!gezogen) return;
+      if (nurDok && gezogen.art !== 'dok') return;
+      if (gezogen.art === 'ordner' && gezogen.id === zielId) return;
+      e.preventDefault(); el.classList.add('ziel');
+    });
+    el.addEventListener('dragleave', () => el.classList.remove('ziel'));
+    el.addEventListener('drop', (e) => {
+      e.preventDefault(); el.classList.remove('ziel');
+      if (!gezogen) return;
+      setTriggerValue('aktion', {typ: 'verschieben', art: gezogen.art, id: gezogen.id, ziel: zielId, t: Date.now()});
+      gezogen = null;
+    });
+  }
+  function ziehbar(el, art, id) {
+    el.draggable = true;
+    el.addEventListener('dragstart', (e) => {
+      gezogen = {art, id};
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', id);
+      setTimeout(() => el.classList.add('zieht'), 0);
+    });
+    el.addEventListener('dragend', () => { el.classList.remove('zieht'); gezogen = null; });
+  }
+  function zeile(sym, name, info, pfeil) {
+    const z = document.createElement('div');
+    z.className = 'zeile';
+    z.innerHTML = '<span class="sym">' + sym + '</span><span class="name">' + esc(name) + '</span>' +
+      (info ? '<span class="info">' + esc(info) + '</span>' : '') + (pfeil ? '<span class="pfeil">›</span>' : '');
+    return z;
+  }
+
+  // Pfad oben (Klick = hingehen, Ablegen = dorthin verschieben)
+  const pfad = document.createElement('div');
+  pfad.className = 'pfad';
+  data.pfad.forEach((k, i) => {
+    if (i > 0) { const t = document.createElement('span'); t.className = 'trenn'; t.textContent = '›'; pfad.appendChild(t); }
+    const el = document.createElement('span');
+    const letzte = i === data.pfad.length - 1;
+    el.className = 'krume' + (letzte ? ' jetzt' : '');
+    el.textContent = (i === 0 ? '🏠 ' : '') + k.name;
+    if (!letzte) {
+      el.onclick = () => setTriggerValue('aktion', {typ: 'oeffnen', id: k.id, t: Date.now()});
+      ziel(el, k.id, false);
+    }
+    pfad.appendChild(el);
+  });
+  wurzel.appendChild(pfad);
+
+  // Inhalt des aktuellen Ordners
+  const box = document.createElement('div');
+  box.className = 'box';
+  data.ordner.forEach((o) => {
+    const z = zeile('📁', o.name, o.info, true);
+    z.onclick = () => setTriggerValue('aktion', {typ: 'oeffnen', id: o.id, t: Date.now()});
+    ziehbar(z, 'ordner', o.id);
+    ziel(z, o.id, false);
+    box.appendChild(z);
+  });
+  data.dokumente.forEach((d) => {
+    const z = zeile(d.symbol, d.name, d.info, false);
+    if (d.offen) z.classList.add('offen');
+    z.onclick = () => setTriggerValue('aktion', {typ: 'dok', id: d.id, t: Date.now()});
+    ziehbar(z, 'dok', d.id);
+    box.appendChild(z);
+  });
+  if (!data.ordner.length && !data.dokumente.length) {
+    box.innerHTML = '<div class="leer">' + esc(data.leer) + '</div>';
+  }
+  wurzel.appendChild(box);
+
+  // „Neu erstellt“: hier landet alles Neue, von hier zieht man es in Ordner
+  const t = document.createElement('div');
+  t.className = 'titel';
+  t.textContent = '📥 Neu erstellt (' + data.ablage.length + ')';
+  wurzel.appendChild(t);
+  const ablage = document.createElement('div');
+  ablage.className = 'box ablage';
+  data.ablage.forEach((d) => {
+    const z = zeile(d.symbol, d.name, d.info, false);
+    if (d.offen) z.classList.add('offen');
+    z.onclick = () => setTriggerValue('aktion', {typ: 'dok', id: d.id, t: Date.now()});
+    ziehbar(z, 'dok', d.id);
+    ablage.appendChild(z);
+  });
+  if (!data.ablage.length) ablage.innerHTML = '<div class="leer">Neues landet hier.</div>';
+  ziel(ablage, null, true);
+  wurzel.appendChild(ablage);
+  const h = document.createElement('div');
+  h.className = 'hinweis';
+  h.textContent = 'Tipp: Mit der Maus auf einen Ordner oder oben auf den Pfad ziehen.';
+  wurzel.appendChild(h);
+}
+"""
+
+FINDER = st.components.v2.component("uniwolf_finder", css=FINDER_CSS, js=FINDER_JS)
+
+
+def dok_info(dok: dict) -> str:
+    info = datetime.fromisoformat(dok["erstellt"]).strftime("%d.%m.%y")
+    if dok["typ"] == "quiz" and dok.get("ergebnis"):
+        punkte = sum(PUNKTE.get(v[0], 0) for v in dok["ergebnis"].values())
+        info += f" · ⭐ {punkte:g}/{len(dok['inhalt']['fragen'])}".replace(".", ",")
+    return info
+
+
 def bereich_neu_laden() -> None:
     """Lädt nur die Seitenleiste neu (schneller, ruhiger). Geht das nicht, die ganze Seite."""
     try:
@@ -644,115 +806,148 @@ def bereich_neu_laden() -> None:
         st.rerun()
 
 
-def ordner_umschalten(i: str) -> None:
-    st.session_state["ordner_id"] = None if st.session_state.get("ordner_id") == i else i
+def finder_aktion(daten: dict, aktion: dict) -> None:
+    """Verarbeitet einen Klick oder ein Ziehen aus der Finder-Ansicht."""
+    typ = aktion.get("typ")
+    if typ == "oeffnen":
+        st.session_state["ordner_id"] = aktion.get("id") if aktion.get("id") in daten["ordner"] else None
+        bereich_neu_laden()
+    elif typ == "dok" and aktion.get("id") in daten["dokumente"]:
+        dokument_oeffnen(aktion["id"], daten["dokumente"][aktion["id"]])
+        st.rerun()  # ganze Seite, damit das Dokument im Tab erscheint
+    elif typ == "verschieben":
+        objekt_verschieben(daten, aktion.get("art"), aktion.get("id"), aktion.get("ziel"))
+        bereich_neu_laden()
+
+
+def objekt_verschieben(daten: dict, art: str, oid: str, ziel) -> None:
+    if ziel is not None and ziel not in daten["ordner"]:
+        return
+    zielname = ordner_pfad_text(daten, ziel) if ziel else ("📥 Neu erstellt" if art == "dok" else "🏠 Meine Ordner")
+    if art == "dok" and oid in daten["dokumente"]:
+        daten["dokumente"][oid]["ordner_id"] = ziel
+        meldung(f"„{daten['dokumente'][oid]['name']}“ → {zielname}", "📦")
+    elif art == "ordner" and oid in daten["ordner"]:
+        if ziel is not None and ziel in alle_unterordner(daten, oid):
+            meldung("Ein Ordner kann nicht in sich selbst liegen.", "⚠️")
+            return
+        daten["ordner"][oid]["eltern"] = ziel
+        meldung(f"📁 „{daten['ordner'][oid]['name']}“ → {zielname}", "📦")
+    else:
+        return
+    daten_speichern(daten)
+
+
+def ziel_auswahl(daten: dict, mit_ablage: bool, ohne: set = frozenset()) -> list:
+    """Alle möglichen Ziele als (id, Anzeigename), sortiert nach Pfad."""
+    ziele = [(None, "📥 Neu erstellt" if mit_ablage else "🏠 Meine Ordner (oberste Ebene)")]
+    ordner = sorted((ordner_pfad_text(daten, i), i) for i in daten["ordner"] if i not in ohne)
+    return ziele + [(i, "📁 " + text) for text, i in ordner]
 
 
 @st.fragment
 def ordner_seitenleiste() -> None:
-    """Ordner und Dokumente in der Seitenleiste: Ordner als Kacheln, Dokumente als Karten."""
+    """Ordner und Dokumente wie im Finder."""
     daten = daten_laden()
     st.divider()
     st.markdown('<div class="seiten-titel">📁 Meine Ordner</div>', unsafe_allow_html=True)
 
-    ordner_ids = sorted(daten["ordner"], key=lambda i: daten["ordner"][i]["name"].lower())
-    if st.session_state.get("ordner_id") not in ordner_ids:
+    if st.session_state.get("ordner_id") not in daten["ordner"]:
         st.session_state["ordner_id"] = None
-    ordner_id = st.session_state["ordner_id"]
+    aktuell = st.session_state["ordner_id"]
+    offene = {st.session_state.get(f"dok_{t}") for t in DOK_NAME}
 
-    def anzahl(i):
-        return sum(1 for d in daten["dokumente"].values() if d["ordner_id"] == i)
+    def dok_daten(i, d):
+        return {"id": i, "name": d["name"], "symbol": DOK_SYMBOL[d["typ"]], "info": dok_info(d), "offen": i in offene}
 
-    # Ordner-Kacheln: Klick öffnet den Ordner, nochmal Klick schließt ihn
-    for i in ordner_ids:
-        aktiv = i == ordner_id
-        symbol = "📂" if aktiv else "📁"
-        st.button(f"{symbol}  {daten['ordner'][i]['name']}  ·  {anzahl(i)}", key=f"ordner_btn_{i}",
-                  type="primary" if aktiv else "secondary", use_container_width=True,
-                  on_click=ordner_umschalten, args=(i,))
+    pfad = [{"id": None, "name": "Meine Ordner"}] + [
+        {"id": i, "name": daten["ordner"][i]["name"]} for i in ordner_pfad(daten, aktuell)]
+    ordner_liste = []
+    for i in unterordner(daten, aktuell):
+        n_ord, n_dok = len(unterordner(daten, i)), len(dokumente_in(daten, i))
+        teile = ([f"{n_ord} Ordner"] if n_ord else []) + ([f"{n_dok} Dok."] if n_dok else [])
+        ordner_liste.append({"id": i, "name": daten["ordner"][i]["name"], "info": " · ".join(teile) or "leer"})
+    finder_daten = {
+        "pfad": pfad,
+        "ordner": ordner_liste,
+        "dokumente": [dok_daten(i, d) for i, d in dokumente_in(daten, aktuell)] if aktuell else [],
+        "ablage": [dok_daten(i, d) for i, d in dokumente_in(daten, None)],
+        "leer": "Dieser Ordner ist leer." if aktuell else "Noch keine Ordner. Leg unten einen an.",
+        "css": FINDER_CSS,
+    }
+    ergebnis = FINDER(data=finder_daten, key="finder", on_aktion_change=lambda: None)
+    aktion = getattr(ergebnis, "aktion", None) if ergebnis is not None else None
+    if aktion and aktion.get("t") != st.session_state.get("finder_letzte"):
+        st.session_state["finder_letzte"] = aktion.get("t")
+        finder_aktion(daten, aktion)
 
-    with st.popover("➕ Neuer Ordner", use_container_width=True):
+    links, rechts = st.columns(2)
+    with links.popover("➕ Ordner", use_container_width=True):
         with st.form("neuer_ordner", clear_on_submit=True, border=False):
-            name = st.text_input("Name des Ordners", placeholder="z. B. Statistik 1")
+            ort = ordner_pfad_text(daten, aktuell) if aktuell else "ganz oben"
+            name = st.text_input("Name des Ordners", placeholder="z. B. Lebensmittellehre")
+            st.caption(f"Wird angelegt in: {ort}")
             if st.form_submit_button("Anlegen", type="primary") and name.strip():
                 neu_id = uuid.uuid4().hex[:10]
-                daten["ordner"][neu_id] = {"name": name.strip()}
+                daten["ordner"][neu_id] = {"name": name.strip(), "eltern": aktuell}
                 daten_speichern(daten)
-                st.session_state["ordner_id"] = neu_id
                 bereich_neu_laden()
+    with rechts.popover("✏️ Bearbeiten", use_container_width=True):
+        bearbeiten(daten, aktuell)
 
-    if not ordner_ids:
-        st.caption("Noch keine Ordner. Lege einen an, dann werden deine Ergebnisse dort gespeichert.")
+
+def bearbeiten(daten: dict, aktuell) -> None:
+    """Umbenennen, Verschieben (auch ohne Maus, z. B. am Handy) und Löschen."""
+    eintraege = [("ordner", i) for i in unterordner(daten, aktuell)]
+    eintraege += [("dok", i) for i, _ in (dokumente_in(daten, aktuell) if aktuell else [])]
+    eintraege += [("dok", i) for i, _ in dokumente_in(daten, None)]
+    if aktuell:
+        eintraege.insert(0, ("ordner", aktuell))
+    if not eintraege:
+        st.caption("Hier gibt es noch nichts zu bearbeiten.")
         return
-    if ordner_id is None:
-        st.caption("Klick auf einen Ordner, um ihn zu öffnen. Neue Ergebnisse werden dann dort gespeichert.")
-        return
 
-    # Geöffneter Ordner
-    st.markdown(
-        f'<div class="ordner-kopf">📂 {html.escape(daten["ordner"][ordner_id]["name"])}'
-        f'<span>Neues wird hier automatisch gespeichert</span></div>',
-        unsafe_allow_html=True,
-    )
+    def anzeige(e):
+        art, i = e
+        if art == "ordner":
+            return ("📂 Dieser Ordner: " if i == aktuell else "📁 ") + daten["ordner"][i]["name"]
+        d = daten["dokumente"][i]
+        ort = "" if d.get("ordner_id") in daten["ordner"] else "📥 "
+        return f"{ort}{DOK_SYMBOL[d['typ']]} {d['name']}"
 
-    dokumente = sorted(
-        ((i, d) for i, d in daten["dokumente"].items() if d["ordner_id"] == ordner_id),
-        key=lambda x: x[1]["erstellt"], reverse=True,
-    )
-    if not dokumente:
-        st.caption("Dieser Ordner ist noch leer.")
+    art, oid = st.selectbox("Was?", eintraege, format_func=anzeige, key="bearb_wahl")
+    alt_name = daten["ordner"][oid]["name"] if art == "ordner" else daten["dokumente"][oid]["name"]
+    neuer_name = st.text_input("Name", value=alt_name, key=f"bearb_name_{oid}")
+    if st.button("✏️ Umbenennen", key=f"bearb_umbenennen_{oid}", use_container_width=True) and neuer_name.strip():
+        (daten["ordner"] if art == "ordner" else daten["dokumente"])[oid]["name"] = neuer_name.strip()
+        daten_speichern(daten)
+        bereich_neu_laden()
 
-    for dok_id, dok in dokumente:
-        datum = datetime.fromisoformat(dok["erstellt"]).strftime("%d.%m.%Y")
-        info = f"{DOK_NAME[dok['typ']]} · {datum}"
-        if dok["typ"] == "quiz" and dok.get("ergebnis"):
-            punkte = sum(PUNKTE.get(v[0], 0) for v in dok["ergebnis"].values())
-            info += f" · ⭐ {punkte:g}/{len(dok['inhalt']['fragen'])}".replace(".", ",")
-        with st.container(border=True):
-            st.markdown(
-                f'<div class="dok-karte"><div class="dok-symbol">{DOK_SYMBOL[dok["typ"]]}</div>'
-                f'<div><div class="dok-name">{html.escape(dok["name"])}</div>'
-                f'<div class="dok-info">{info}</div></div></div>',
-                unsafe_allow_html=True,
-            )
-            links, rechts = st.columns([3, 1])
-            if links.button("Öffnen", key=f"oeffnen_{dok_id}", type="primary", use_container_width=True):
-                dokument_oeffnen(dok_id, dok)
-                st.rerun()  # ganze Seite, damit das Dokument im Tab erscheint
-            with rechts.popover("✏️", use_container_width=True):
-                neuer_name = st.text_input("Name", value=dok["name"], key=f"name_{dok_id}")
-                if st.button("✏️ Umbenennen", key=f"umbenennen_{dok_id}", use_container_width=True):
-                    if neuer_name.strip():
-                        daten["dokumente"][dok_id]["name"] = neuer_name.strip()
-                        daten_speichern(daten)
-                        bereich_neu_laden()
-                andere = [i for i in ordner_ids if i != ordner_id]
-                if andere:
-                    ziel = st.selectbox("Verschieben nach", andere,
-                                        format_func=lambda i: daten["ordner"][i]["name"], key=f"ziel_{dok_id}")
-                    if st.button("📦 Verschieben", key=f"verschieben_{dok_id}", use_container_width=True):
-                        daten["dokumente"][dok_id]["ordner_id"] = ziel
-                        daten_speichern(daten)
-                        bereich_neu_laden()
-                sicher = st.checkbox("Ja, wirklich löschen", key=f"sicher_{dok_id}")
-                if st.button("🗑️ Löschen", key=f"loeschen_{dok_id}", disabled=not sicher, use_container_width=True):
-                    del daten["dokumente"][dok_id]
-                    daten_speichern(daten)
-                    bereich_neu_laden()
+    ohne = alle_unterordner(daten, oid) if art == "ordner" else set()
+    ziele = ziel_auswahl(daten, mit_ablage=art == "dok", ohne=ohne)
+    ziel = st.selectbox("Verschieben nach", ziele, format_func=lambda z: z[1], key=f"bearb_ziel_{oid}")
+    if st.button("📦 Verschieben", key=f"bearb_verschieben_{oid}", use_container_width=True):
+        objekt_verschieben(daten, art, oid, ziel[0])
+        bereich_neu_laden()
 
-    with st.popover("⚙️ Ordner bearbeiten", use_container_width=True):
-        ordner_name = st.text_input("Ordnername", value=daten["ordner"][ordner_id]["name"], key=f"oname_{ordner_id}")
-        if st.button("✏️ Ordner umbenennen", use_container_width=True) and ordner_name.strip():
-            daten["ordner"][ordner_id]["name"] = ordner_name.strip()
-            daten_speichern(daten)
-            bereich_neu_laden()
-        sicher = st.checkbox("Ordner mit allen Dokumenten löschen", key=f"osicher_{ordner_id}")
-        if st.button("🗑️ Ordner löschen", disabled=not sicher, use_container_width=True):
-            daten["dokumente"] = {i: d for i, d in daten["dokumente"].items() if d["ordner_id"] != ordner_id}
-            del daten["ordner"][ordner_id]
-            daten_speichern(daten)
-            st.session_state["ordner_id"] = None
-            bereich_neu_laden()
+    hinweis = ("Ordner löschen (Dokumente darin kommen nach „Neu erstellt“, nichts geht verloren)"
+               if art == "ordner" else "Ja, dieses Dokument löschen")
+    sicher = st.checkbox(hinweis, key=f"bearb_sicher_{oid}")
+    if st.button("🗑️ Löschen", key=f"bearb_loeschen_{oid}", disabled=not sicher, use_container_width=True):
+        if art == "ordner":
+            eltern = daten["ordner"][oid].get("eltern")
+            weg = alle_unterordner(daten, oid)
+            for d in daten["dokumente"].values():
+                if d.get("ordner_id") in weg:
+                    d["ordner_id"] = None
+            for i in weg:
+                del daten["ordner"][i]
+            if aktuell in weg:
+                st.session_state["ordner_id"] = eltern
+        else:
+            del daten["dokumente"][oid]
+        daten_speichern(daten)
+        bereich_neu_laden()
 
 
 # ---------------------------------------------------------------------------
