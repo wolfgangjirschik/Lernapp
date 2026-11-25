@@ -8,6 +8,7 @@ Start:  streamlit run app.py
 
 import base64
 import copy
+import hashlib
 import html
 import json
 import os
@@ -527,6 +528,7 @@ def daten_speichern(daten: dict) -> None:
         (supabase_client().table("lern_daten")
          .upsert({"user_id": st.session_state["user_id"], "daten": daten}, on_conflict="user_id").execute())
         st.session_state["online_daten"] = copy.deepcopy(daten)
+        teilen_abgleichen(daten)
         return
     DATEN_DATEI.parent.mkdir(exist_ok=True)
     zwischen = DATEN_DATEI.with_suffix(".tmp")
@@ -561,6 +563,7 @@ def dokument_speichern(typ: str, inhalt, ordner_id=None, ergebnis=None) -> None:
     }
     daten_speichern(daten)
     st.session_state[f"dok_{typ}"] = dok_id
+    st.session_state.pop(f"fremd_{typ}", None)
     ort = ordner_pfad_text(daten, ordner_id) if ordner_id else "📥 Neu erstellt"
     meldung(f"Gespeichert in {ort}. Du kannst es links in einen Ordner ziehen.", "💾")
 
@@ -607,6 +610,10 @@ def dokumente_in(daten: dict, oid) -> list:
 
 def in_ordner_speichern(typ: str) -> None:
     """Zeigt unter einem Ergebnis, wo es gespeichert ist."""
+    if st.session_state.get(f"fremd_{typ}"):
+        st.caption("🌍 Öffentlich, nur angesehen (nicht in deinen Ordnern). "
+                   "Links unter „🌍 Öffentlich“ kannst du es mit 📥 Übernehmen speichern.")
+        return
     daten = daten_laden()
     dok_id = st.session_state.get(f"dok_{typ}")
     if dok_id in daten["dokumente"]:
@@ -641,6 +648,7 @@ def dokument_oeffnen(dok_id: str, dok: dict) -> None:
         alt = dok.get("ergebnis")
         st.session_state["quiz_ergebnis"] = {int(k): tuple(v) for k, v in alt.items()} if alt else None
     st.session_state[f"dok_{typ}"] = dok_id
+    st.session_state.pop(f"fremd_{typ}", None)
     meldung(f"„{dok['name']}“ geöffnet. Schau im Tab {DOK_NAME[typ]}.", "📂")
 
 
@@ -795,6 +803,8 @@ def dok_info(dok: dict) -> str:
     if dok["typ"] == "quiz" and dok.get("ergebnis"):
         punkte = sum(PUNKTE.get(v[0], 0) for v in dok["ergebnis"].values())
         info += f" · ⭐ {punkte:g}/{len(dok['inhalt']['fragen'])}".replace(".", ",")
+    if dok.get("oeffentlich"):
+        info = "🌍 " + info
     return info
 
 
@@ -866,7 +876,10 @@ def ordner_seitenleiste() -> None:
     for i in unterordner(daten, aktuell):
         n_ord, n_dok = len(unterordner(daten, i)), len(dokumente_in(daten, i))
         teile = ([f"{n_ord} Ordner"] if n_ord else []) + ([f"{n_dok} Dok."] if n_dok else [])
-        ordner_liste.append({"id": i, "name": daten["ordner"][i]["name"], "info": " · ".join(teile) or "leer"})
+        info = " · ".join(teile) or "leer"
+        if daten["ordner"][i].get("oeffentlich"):
+            info = "🌍 " + info
+        ordner_liste.append({"id": i, "name": daten["ordner"][i]["name"], "info": info})
     finder_daten = {
         "pfad": pfad,
         "ordner": ordner_liste,
@@ -923,6 +936,9 @@ def bearbeiten(daten: dict, aktuell) -> None:
         daten_speichern(daten)
         bereich_neu_laden()
 
+    if teilen_aktiv():
+        oeffentlich_schalter(daten, art, oid)
+
     ohne = alle_unterordner(daten, oid) if art == "ordner" else set()
     ziele = ziel_auswahl(daten, mit_ablage=art == "dok", ohne=ohne)
     ziel = st.selectbox("Verschieben nach", ziele, format_func=lambda z: z[1], key=f"bearb_ziel_{oid}")
@@ -948,6 +964,195 @@ def bearbeiten(daten: dict, aktuell) -> None:
             del daten["dokumente"][oid]
         daten_speichern(daten)
         bereich_neu_laden()
+
+
+# ---------------------------------------------------------------------------
+# Öffentlich teilen (nur online): Jeder kann eigene Dokumente oder ganze Ordner
+# auf „öffentlich“ stellen. Standard ist privat. Von öffentlichen Sachen liegt eine
+# Kopie in der Supabase-Tabelle „geteilt“ (Regeln dazu: supabase_teilen.sql).
+# Andere können sie ansehen oder in ihre eigenen Ordner übernehmen, ohne neu zu erstellen.
+# ---------------------------------------------------------------------------
+
+def teilen_aktiv() -> bool:
+    return ONLINE and not st.session_state.get("teilen_fehlt")
+
+
+def teilen_fehler(fehler: Exception) -> None:
+    """Gibt es die Tabelle noch nicht (SQL nicht ausgeführt), wird Teilen still ausgeschaltet."""
+    text = str(fehler)
+    if "geteilt" in text or "PGRST205" in text or "42P01" in text:
+        st.session_state["teilen_fehlt"] = True
+    else:  # z. B. kurz keine Verbindung: deine eigenen Daten sind trotzdem gespeichert
+        st.session_state.pop("geteilt_hash", None)  # beim nächsten Speichern alles neu abgleichen
+        meldung(f"Öffentlich teilen hat gerade nicht geklappt ({type(fehler).__name__}). "
+                "Deine Sachen sind trotzdem gespeichert.", "⚠️")
+
+
+def oeffentlich_durch(daten: dict, art: str, oid: str):
+    """Name des öffentlichen Ordners, über den etwas schon sichtbar ist (oder None)."""
+    start = daten["dokumente"][oid].get("ordner_id") if art == "dok" else daten["ordner"][oid].get("eltern")
+    for i in reversed(ordner_pfad(daten, start)):
+        if daten["ordner"][i].get("oeffentlich"):
+            return daten["ordner"][i]["name"]
+    return None
+
+
+def schnappschuesse(daten: dict) -> dict:
+    """Alles, was öffentlich ist, als fertige Zeilen für die Tabelle „geteilt“ (ohne eigene Quiz-Ergebnisse)."""
+    zeilen = {}
+    for i, d in daten["dokumente"].items():
+        if d.get("oeffentlich"):
+            zeilen[i] = {"art": "dok", "name": d["name"][:200], "typ": d["typ"],
+                         "inhalt": {"name": d["name"], "typ": d["typ"], "inhalt": d["inhalt"]}}
+    for oid, o in daten["ordner"].items():
+        if o.get("oeffentlich"):
+            teil = alle_unterordner(daten, oid)
+            ordner = {i: {"name": daten["ordner"][i]["name"],
+                          "eltern": None if i == oid else daten["ordner"][i].get("eltern")} for i in teil}
+            dokumente = {i: {"name": d["name"], "typ": d["typ"], "ordner_id": d["ordner_id"],
+                             "erstellt": d["erstellt"], "inhalt": d["inhalt"]}
+                         for i, d in daten["dokumente"].items() if d.get("ordner_id") in teil}
+            zeilen[oid] = {"art": "ordner", "name": o["name"][:200], "typ": None,
+                           "inhalt": {"wurzel": oid, "ordner": ordner, "dokumente": dokumente}}
+    return zeilen
+
+
+def teilen_abgleichen(daten: dict) -> None:
+    """Bringt die öffentlichen Kopien auf den Stand der eigenen Daten. Schickt nur, was sich geändert hat."""
+    if not teilen_aktiv():
+        return
+    tabelle = supabase_client().table("geteilt")
+    uid = st.session_state["user_id"]
+    try:
+        bekannt = st.session_state.get("geteilt_hash")
+        if bekannt is None:  # einmal pro Sitzung: was liegt schon online?
+            antwort = tabelle.select("quelle_id").eq("user_id", uid).execute()
+            bekannt = {z["quelle_id"]: None for z in antwort.data}
+        neu = schnappschuesse(daten)
+        hashes = {q: hashlib.sha256(json.dumps(z, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+                  for q, z in neu.items()}
+        geaendert = [dict(z, user_id=uid, quelle_id=q, geaendert=datetime.now().astimezone().isoformat())
+                     for q, z in neu.items() if bekannt.get(q) != hashes[q]]
+        if geaendert:
+            tabelle.upsert(geaendert, on_conflict="user_id,quelle_id").execute()
+        weg = [q for q in bekannt if q not in neu]
+        if weg:
+            tabelle.delete().eq("user_id", uid).in_("quelle_id", weg).execute()
+        st.session_state["geteilt_hash"] = hashes
+        st.session_state.pop("geteilt_liste", None)  # Liste „Öffentlich“ neu laden
+    except Exception as fehler:  # noqa: BLE001
+        teilen_fehler(fehler)
+
+
+def oeffentlich_schalter(daten: dict, art: str, oid: str) -> None:
+    """Häkchen im „Bearbeiten“-Fenster: privat oder öffentlich."""
+    obj = (daten["ordner"] if art == "ordner" else daten["dokumente"])[oid]
+    durch = oeffentlich_durch(daten, art, oid)
+    jetzt = bool(obj.get("oeffentlich"))
+    hilfe = ("Alle angemeldeten Nutzer können es sehen und in ihre Ordner übernehmen. "
+             "Deine Quiz-Ergebnisse und deine E-Mail werden nicht geteilt.")
+    if art == "ordner":
+        hilfe += " Bei einem Ordner wird alles darin geteilt, auch Unterordner."
+    neu = st.toggle("🌍 Öffentlich", value=jetzt, key=f"bearb_oeff_{oid}_{jetzt}", help=hilfe)
+    if durch and not jetzt:
+        st.caption(f"Schon öffentlich, weil es im öffentlichen Ordner „{durch}“ liegt.")
+    if neu != jetzt:
+        obj["oeffentlich"] = neu
+        daten_speichern(daten)
+        meldung(f"„{obj['name']}“ ist jetzt {'öffentlich 🌍' if neu else 'privat 🔒'}.", "🌍" if neu else "🔒")
+        bereich_neu_laden()
+
+
+def geteilt_liste(neu_laden: bool = False) -> list:
+    """Alle öffentlichen Einträge (ohne Inhalt), höchstens 1 Minute alt."""
+    gemerkt = st.session_state.get("geteilt_liste")
+    if gemerkt and not neu_laden and time.time() - gemerkt[0] < 60:
+        return gemerkt[1]
+    try:
+        antwort = (supabase_client().table("geteilt").select("id,user_id,art,name,typ,geaendert")
+                   .order("geaendert", desc=True).limit(300).execute())
+    except Exception as fehler:  # noqa: BLE001
+        teilen_fehler(fehler)
+        st.session_state["geteilt_liste"] = (time.time(), [])  # nicht bei jedem Klick neu versuchen
+        return []
+    st.session_state["geteilt_liste"] = (time.time(), antwort.data)
+    return antwort.data
+
+
+def geteilt_inhalt(zeilen_id: str):
+    antwort = supabase_client().table("geteilt").select("art,name,typ,inhalt").eq("id", zeilen_id).execute()
+    return antwort.data[0] if antwort.data else None
+
+
+def geteilt_uebernehmen(zeile: dict) -> None:
+    """Kopiert etwas Öffentliches mit neuen IDs in die eigenen Daten (privat)."""
+    daten = daten_laden()
+    jetzt = datetime.now().isoformat(timespec="seconds")
+    inhalt = zeile["inhalt"]
+    if zeile["art"] == "dok":
+        daten["dokumente"][uuid.uuid4().hex[:10]] = {
+            "name": inhalt["name"], "typ": inhalt["typ"], "ordner_id": None,
+            "erstellt": jetzt, "inhalt": inhalt["inhalt"], "ergebnis": None}
+        meldung(f"„{inhalt['name']}“ übernommen. Es liegt in 📥 Neu erstellt.", "📥")
+    else:
+        neue_id = {alt: uuid.uuid4().hex[:10] for alt in inhalt["ordner"]}
+        for alt, o in inhalt["ordner"].items():
+            eltern = neue_id.get(o.get("eltern")) if alt != inhalt["wurzel"] else None
+            daten["ordner"][neue_id[alt]] = {"name": o["name"], "eltern": eltern}
+        for d in inhalt["dokumente"].values():
+            if d.get("ordner_id") in neue_id:
+                daten["dokumente"][uuid.uuid4().hex[:10]] = {
+                    "name": d["name"], "typ": d["typ"], "ordner_id": neue_id[d["ordner_id"]],
+                    "erstellt": d.get("erstellt", jetzt), "inhalt": d["inhalt"], "ergebnis": None}
+        meldung(f"📁 „{zeile['name']}“ übernommen. Er liegt jetzt in 🏠 Meine Ordner.", "📥")
+    daten_speichern(daten)
+
+
+def geteilt_ansehen(zeile: dict) -> None:
+    """Öffnet ein öffentliches Dokument nur zum Anschauen (wird nicht gespeichert)."""
+    inhalt = zeile["inhalt"]
+    dokument_oeffnen("", {"name": inhalt["name"], "typ": inhalt["typ"], "inhalt": inhalt["inhalt"]})
+    st.session_state[f"dok_{inhalt['typ']}"] = None  # Quiz-Ergebnisse nicht in fremdes Dokument schreiben
+    st.session_state[f"fremd_{inhalt['typ']}"] = True
+
+
+@st.fragment
+def oeffentlich_seitenleiste() -> None:
+    """Fenster „🌍 Öffentlich“: Sachen von allen, zum Ansehen oder Übernehmen."""
+    with st.popover("🌍 Öffentlich", use_container_width=True):
+        oben_l, oben_r = st.columns([4, 1])
+        suche = oben_l.text_input("Suchen", placeholder="z. B. Lebensmittellehre", key="geteilt_suche",
+                                  label_visibility="collapsed")
+        neu = oben_r.button("🔄", key="geteilt_neu", help="Liste neu laden")
+        zeilen = geteilt_liste(neu_laden=neu)
+        if st.session_state.get("teilen_fehlt"):
+            st.caption("Teilen ist noch nicht eingerichtet (supabase_teilen.sql fehlt in Supabase).")
+            return
+        if suche.strip():
+            zeilen = [z for z in zeilen if suche.strip().lower() in z["name"].lower()]
+        if not zeilen:
+            st.caption("Noch nichts Öffentliches gefunden. Eigene Sachen stellst du unter "
+                       "„✏️ Bearbeiten“ auf 🌍 Öffentlich.")
+            return
+        st.caption(f"{len(zeilen)} öffentlich" + (" (die ersten 30)" if len(zeilen) > 30 else ""))
+        for z in zeilen[:30]:
+            symbol = "📁" if z["art"] == "ordner" else DOK_SYMBOL.get(z["typ"], "📄")
+            von_mir = " · von dir" if z["user_id"] == st.session_state.get("user_id") else ""
+            datum = datetime.fromisoformat(z["geaendert"]).strftime("%d.%m.%y")
+            st.markdown(f"**{symbol} {z['name']}**  \n<small>{datum}{von_mir}</small>", unsafe_allow_html=True)
+            links, rechts = st.columns(2)
+            if z["art"] == "dok" and links.button("👀 Ansehen", key=f"geteilt_an_{z['id']}",
+                                                  use_container_width=True):
+                zeile = geteilt_inhalt(z["id"])
+                if zeile:
+                    geteilt_ansehen(zeile)
+                    st.rerun()
+            if rechts.button("📥 Übernehmen", key=f"geteilt_ueb_{z['id']}", use_container_width=True,
+                             help="Kopie in deine Ordner. Kostet nichts, Claude wird nicht gefragt."):
+                zeile = geteilt_inhalt(z["id"])
+                if zeile:
+                    geteilt_uebernehmen(zeile)
+                    st.rerun()
 
 
 # ---------------------------------------------------------------------------
@@ -1172,6 +1377,8 @@ with st.sidebar:
         guthaben_seitenleiste()
 
     ordner_seitenleiste()
+    if teilen_aktiv():
+        oeffentlich_seitenleiste()
 
 
 # --- Schritt 1: Unterlagen ---

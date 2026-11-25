@@ -110,6 +110,22 @@ Hast du das Guthaben schon früher mit Startguthaben eingerichtet, führe zusät
 
 ---
 
+## Öffentlich teilen
+
+Jeder kann eigene Quizze, Karteikarten, Zusammenfassungen oder ganze Ordner auf
+**🌍 Öffentlich** stellen (links unter **✏️ Bearbeiten**). Standard ist privat.
+Alle angemeldeten Nutzer finden öffentliche Sachen links unter **🌍 Öffentlich** und können
+sie ansehen oder mit **📥 Übernehmen** in ihre eigenen Ordner kopieren. Das kostet nichts,
+weil Claude dafür nicht gefragt wird.
+
+Einrichten (einmal): Supabase → **SQL Editor** → **New query** (leerer Editor) →
+Inhalt von `supabase_teilen.sql` einfügen → **Run**.
+
+Sicherheit: Lesen dürfen nur angemeldete Nutzer. Ändern und löschen darf jeder nur
+seine eigenen öffentlichen Einträge. Quiz-Ergebnisse und E-Mail-Adressen werden nicht geteilt.
+
+---
+
 ## Was deine Freunde tun
 
 1. Link öffnen → Tab **Neues Konto** → E-Mail und Passwort → **Konto erstellen**.
@@ -149,4 +165,5 @@ Hast du das Guthaben schon früher mit Startguthaben eingerichtet, führe zusät
 - Claude-Preise pro Modell: https://platform.claude.com/docs/en/about-claude/pricing
 - Supabase Datenbank-Funktionen (security definer): https://supabase.com/docs/guides/database/functions
 - Revolut Zahlungslink erstellen (Zahlungen > Neu > Link > Geld anfordern): https://help.revolut.com/help/adding-money/with-money-from-friends-or-relatives/requesting-money/
+- Supabase Zugriffsregeln (Row Level Security): https://supabase.com/docs/guides/database/postgres/row-level-security
 - Secrets in Streamlit Community Cloud eintragen: https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/secrets-management
