@@ -645,8 +645,7 @@ def dokument_oeffnen(dok_id: str, dok: dict) -> None:
     elif typ == "quiz":
         st.session_state["quiz"] = Quiz.model_validate(inhalt).fragen
         st.session_state["quiz_runde"] = st.session_state.get("quiz_runde", 0) + 1
-        alt = dok.get("ergebnis")
-        st.session_state["quiz_ergebnis"] = {int(k): tuple(v) for k, v in alt.items()} if alt else None
+        st.session_state["quiz_ergebnis"] = None  # beim Öffnen immer frisch, ohne alte Antworten
     st.session_state[f"dok_{typ}"] = dok_id
     st.session_state.pop(f"fremd_{typ}", None)
     meldung(f"„{dok['name']}“ geöffnet. Schau im Tab {DOK_NAME[typ]}.", "📂")
