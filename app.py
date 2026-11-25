@@ -974,14 +974,16 @@ def bearbeiten(daten: dict, aktuell) -> None:
 # ---------------------------------------------------------------------------
 
 def teilen_aktiv() -> bool:
-    return ONLINE and not st.session_state.get("teilen_fehlt")
+    """Online immer an. Nur kurz aus (2 Minuten), wenn die Tabelle gerade nicht erreichbar war."""
+    fehlt = st.session_state.get("teilen_fehlt")
+    return ONLINE and not (fehlt and time.time() - fehlt[0] < 120)
 
 
 def teilen_fehler(fehler: Exception) -> None:
     """Gibt es die Tabelle noch nicht (SQL nicht ausgeführt), wird Teilen still ausgeschaltet."""
     text = str(fehler)
     if "geteilt" in text or "PGRST205" in text or "42P01" in text:
-        st.session_state["teilen_fehlt"] = True
+        st.session_state["teilen_fehlt"] = (time.time(), text[:300])
     else:  # z. B. kurz keine Verbindung: deine eigenen Daten sind trotzdem gespeichert
         st.session_state.pop("geteilt_hash", None)  # beim nächsten Speichern alles neu abgleichen
         meldung(f"Öffentlich teilen hat gerade nicht geklappt ({type(fehler).__name__}). "
@@ -1124,9 +1126,14 @@ def oeffentlich_seitenleiste() -> None:
         suche = oben_l.text_input("Suchen", placeholder="z. B. Lebensmittellehre", key="geteilt_suche",
                                   label_visibility="collapsed")
         neu = oben_r.button("🔄", key="geteilt_neu", help="Liste neu laden")
+        if neu:
+            st.session_state.pop("teilen_fehlt", None)
         zeilen = geteilt_liste(neu_laden=neu)
-        if st.session_state.get("teilen_fehlt"):
-            st.caption("Teilen ist noch nicht eingerichtet (supabase_teilen.sql fehlt in Supabase).")
+        fehlt = st.session_state.get("teilen_fehlt")
+        if fehlt:
+            st.caption("Die Tabelle „geteilt“ ist in Supabase gerade nicht erreichbar. "
+                       "Drück 🔄 zum erneut Versuchen.")
+            st.code(fehlt[1], language=None)
             return
         if suche.strip():
             zeilen = [z for z in zeilen if suche.strip().lower() in z["name"].lower()]
@@ -1377,7 +1384,7 @@ with st.sidebar:
         guthaben_seitenleiste()
 
     ordner_seitenleiste()
-    if teilen_aktiv():
+    if ONLINE:
         oeffentlich_seitenleiste()
 
 
